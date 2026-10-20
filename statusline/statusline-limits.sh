@@ -13,6 +13,13 @@ else
   RESET=$'\e[0m' MUTED=$'\e[90m' GREEN=$'\e[32m' YELLOW=$'\e[33m' RED=$'\e[31m'
 fi
 
+# Language: $CLAUDE_LIMITS_LANG, else the first macOS system language; Russian or English.
+lang=${CLAUDE_LIMITS_LANG:-$(defaults read -g AppleLanguages 2>/dev/null | sed -n '2s/[^A-Za-z-]//gp')}
+case $lang in
+  ru*) T_FIVE='5ч' T_WEEK='нед' T_NONE='лимиты: —' T_M='м' T_H='ч' T_D='д' ;;
+  *) T_FIVE='5h' T_WEEK='wk' T_NONE='limits: —' T_M='m' T_H='h' T_D='d' ;;
+esac
+
 PARTIAL=('' '▏' '▎' '▍' '▌' '▋' '▊' '▉')
 
 input=$(cat)
@@ -37,11 +44,11 @@ format_left() {  # $1 = seconds until reset, > 0
   if ((d < 3600)); then
     m=$((d / 60))
     ((m < 1)) && m=1
-    printf '%sм' "$m"
+    printf '%s%s' "$m" "$T_M"
   elif ((d < 86400)); then
-    printf '%sч%sм' $((d / 3600)) $((d % 3600 / 60))
+    printf '%s%s%s%s' $((d / 3600)) "$T_H" $((d % 3600 / 60)) "$T_M"
   else
-    printf '%sд%sч' $((d / 86400)) $((d % 86400 / 3600))
+    printf '%s%s%s%s' $((d / 86400)) "$T_D" $((d % 86400 / 3600)) "$T_H"
   fi
 }
 
@@ -101,11 +108,11 @@ if [ -n "$fh_pct" ] || [ -n "$sd_pct" ]; then
 fi
 
 parts=()
-s=$(segment '5ч' "$fh_pct" "$fh_eighths" "$fh_level" "$fh_reset") && parts+=("$s")
-s=$(segment 'нед' "$sd_pct" "$sd_eighths" "$sd_level" "$sd_reset") && parts+=("$s")
+s=$(segment "$T_FIVE" "$fh_pct" "$fh_eighths" "$fh_level" "$fh_reset") && parts+=("$s")
+s=$(segment "$T_WEEK" "$sd_pct" "$sd_eighths" "$sd_level" "$sd_reset") && parts+=("$s")
 
 if ((${#parts[@]} == 0)); then
-  printf '%sлимиты: —%s\n' "$MUTED" "$RESET"
+  printf '%s%s%s\n' "$MUTED" "$T_NONE" "$RESET"
 elif ((${#parts[@]} == 1)); then
   printf '%s\n' "${parts[0]}"
 else

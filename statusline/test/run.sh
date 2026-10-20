@@ -8,6 +8,7 @@ trap 'rm -rf "$TMP"' EXIT
 FAILS=0
 
 export CLAUDE_LIMITS_CACHE="$TMP/cache"
+export CLAUDE_LIMITS_LANG=ru
 
 run() {  # $1 = stdin
   printf '%s' "$1" | NO_COLOR=1 CLAUDE_LIMITS_NOW=$NOW CLAUDE_LIMITS_FILE="$TMP/limits.json" bash "$SCRIPT"
@@ -87,6 +88,16 @@ expect "green below 60" yes "$(contains "$(run_colored "$(limits "$(win 59.9 780
 expect "yellow at 62" yes "$(contains "$(run_colored "$(limits "$(win 62 7800)" "")")" $'\e[33m')"
 expect "red at 85" yes "$(contains "$(run_colored "$(limits "$(win 85 7800)" "")")" $'\e[31m')"
 expect "no color with NO_COLOR" no "$(contains "$(run "$(limits "$H5" "")")" $'\e[')"
+
+# English, and the language read from the system when no override is set.
+expect "english" "5h ████▎····· 42% 2h10m   wk █▊········ 18% 4d3h" "$(CLAUDE_LIMITS_LANG=en run "$(limits "$H5" "$W7")")"
+expect "english minutes" "5h ████▎····· 42% 45m" "$(CLAUDE_LIMITS_LANG=en run "$(limits "$(win 42 2700)" "")")"
+expect "english no data" "limits: —" "$(CLAUDE_LIMITS_LANG=en run '')"
+expect "unknown language falls back to english" "limits: —" "$(CLAUDE_LIMITS_LANG=de-DE run '')"
+expect "russian region variant" "лимиты: —" "$(CLAUDE_LIMITS_LANG=ru-BY run '')"
+system=$(defaults read -g AppleLanguages 2>/dev/null | sed -n '2s/[^A-Za-z-]//gp')
+case $system in ru*) want="лимиты: —" ;; *) want="limits: —" ;; esac
+expect "system language when unset ($system)" "$want" "$(env -u CLAUDE_LIMITS_LANG bash -c 'printf "" | NO_COLOR=1 bash "$0"' "$SCRIPT")"
 
 echo
 if ((FAILS)); then echo "$FAILS failed"; exit 1; else echo "all passed"; fi

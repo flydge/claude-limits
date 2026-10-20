@@ -6,6 +6,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
     private var timer: Timer?
+    private let lang = Lang.resolve(override: ProcessInfo.processInfo.environment["CLAUDE_LIMITS_LANG"],
+                                    preferred: Locale.preferredLanguages)
     private let fileURL: URL = {
         let path = ProcessInfo.processInfo.environment["CLAUDE_LIMITS_FILE"] ?? "~/.claude/limits.json"
         return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
@@ -15,7 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.autoenablesItems = false
         menu.delegate = self
         statusItem.menu = menu
-        statusItem.button?.toolTip = "Лимиты Claude: 5 часов и неделя"
+        statusItem.button?.toolTip = Strings.of(lang).tooltip
         refresh()
         timer = Timer.scheduledTimer(timeInterval: 30, target: self, selector: #selector(tick),
                                      userInfo: nil, repeats: true)
@@ -44,26 +46,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func rebuildMenu(_ snapshot: Snapshot?, five: RingState, week: RingState, now: TimeInterval) {
         let calendar = Calendar.current
+        let text = Strings.of(lang)
         menu.removeAllItems()
 
-        menu.addItem(windowItem(windowLine(title: "5 часов", snapshot?.fiveHour, now: now, calendar: calendar),
+        menu.addItem(windowItem(windowLine(title: text.fiveHours, snapshot?.fiveHour, now: now, calendar: calendar, lang: lang),
                                 state: five))
         if case .normal = five,
-           let line = forecastLine(snapshot?.fiveHour, kind: .fiveHour, now: now, calendar: calendar) {
+           let line = forecastLine(snapshot?.fiveHour, kind: .fiveHour, now: now, calendar: calendar, lang: lang) {
             menu.addItem(noteItem(line, indented: true))
         }
 
-        menu.addItem(windowItem(windowLine(title: "Неделя", snapshot?.sevenDay, now: now, calendar: calendar),
+        menu.addItem(windowItem(windowLine(title: text.week, snapshot?.sevenDay, now: now, calendar: calendar, lang: lang),
                                 state: week))
         if case .normal = week,
-           let line = forecastLine(snapshot?.sevenDay, kind: .sevenDay, now: now, calendar: calendar) {
+           let line = forecastLine(snapshot?.sevenDay, kind: .sevenDay, now: now, calendar: calendar, lang: lang) {
             menu.addItem(noteItem(line, indented: true))
         }
 
         menu.addItem(.separator())
-        menu.addItem(noteItem(updatedLine(snapshot?.updatedAt, now: now), indented: false))
+        menu.addItem(noteItem(updatedLine(snapshot?.updatedAt, now: now, lang: lang), indented: false))
 
-        let quit = NSMenuItem(title: "Выход", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quit = NSMenuItem(title: text.quit, action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quit.target = NSApp
         menu.addItem(quit)
     }

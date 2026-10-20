@@ -34,7 +34,43 @@ enum RingState: Equatable {
 let staleAfter: TimeInterval = 1_800
 let forecastMinElapsed: TimeInterval = 600
 
-private let weekdays = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"]
+enum Lang: Equatable {
+    case en, ru
+
+    /// `CLAUDE_LIMITS_LANG` when set, else the first preferred system language:
+    /// Russian for `ru…`, English otherwise.
+    static func resolve(override: String?, preferred: [String]) -> Lang {
+        let code = (override?.isEmpty == false ? override : preferred.first) ?? ""
+        return code.lowercased().hasPrefix("ru") ? .ru : .en
+    }
+}
+
+struct Strings {
+    let fiveHours, week, noData, wasReset, resets, forecast, justNow, never, quit, tooltip: String
+    let weekdays: [String]
+    let minutesAgo, hoursAgo, daysAgo: String
+
+    static func of(_ lang: Lang) -> Strings {
+        switch lang {
+        case .ru:
+            return Strings(fiveHours: "5 часов", week: "Неделя", noData: "нет данных", wasReset: "сброшен",
+                           resets: "сброс в", forecast: "в таком темпе кончится ~", justNow: "обновлено только что",
+                           never: "нет данных: запустите Claude Code", quit: "Выход",
+                           tooltip: "Лимиты Claude: 5 часов и неделя",
+                           weekdays: ["вс", "пн", "вт", "ср", "чт", "пт", "сб"],
+                           minutesAgo: "обновлено %d мин назад", hoursAgo: "обновлено %d ч назад",
+                           daysAgo: "обновлено %d д назад")
+        case .en:
+            return Strings(fiveHours: "5 hours", week: "Week", noData: "no data", wasReset: "reset",
+                           resets: "resets", forecast: "at this pace runs out ~", justNow: "updated just now",
+                           never: "no data: run Claude Code", quit: "Quit",
+                           tooltip: "Claude limits: 5 hours and week",
+                           weekdays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+                           minutesAgo: "updated %d min ago", hoursAgo: "updated %d h ago",
+                           daysAgo: "updated %d d ago")
+        }
+    }
+}
 
 func parseSnapshot(_ data: Data) -> Snapshot? {
     guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -67,12 +103,12 @@ func ringState(_ window: LimitWindow?, updatedAt: TimeInterval?, now: TimeInterv
     return .normal(fraction: fraction, level: level(for: window.usedPercentage), label: label)
 }
 
-func formatClock(_ time: TimeInterval, now: TimeInterval, calendar: Calendar) -> String {
+func formatClock(_ time: TimeInterval, now: TimeInterval, calendar: Calendar, lang: Lang) -> String {
     let date = Date(timeIntervalSince1970: time)
     let parts = calendar.dateComponents([.weekday, .hour, .minute], from: date)
     let clock = String(format: "%02d:%02d", parts.hour ?? 0, parts.minute ?? 0)
     if calendar.isDate(date, inSameDayAs: Date(timeIntervalSince1970: now)) { return clock }
-    return "\(weekdays[(parts.weekday ?? 1) - 1]) \(clock)"
+    return "\(Strings.of(lang).weekdays[(parts.weekday ?? 1) - 1]) \(clock)"
 }
 
 func forecastExhaustion(_ window: LimitWindow, kind: WindowKind, now: TimeInterval) -> TimeInterval? {
@@ -83,24 +119,27 @@ func forecastExhaustion(_ window: LimitWindow, kind: WindowKind, now: TimeInterv
     return end < window.resetsAt ? end : nil
 }
 
-func windowLine(title: String, _ window: LimitWindow?, now: TimeInterval, calendar: Calendar) -> String {
-    guard let window else { return "\(title): нет данных" }
-    guard window.resetsAt > now else { return "\(title): сброшен" }
-    let reset = formatClock(window.resetsAt, now: now, calendar: calendar)
-    return "\(title): \(percentLabel(window.usedPercentage))% · сброс в \(reset)"
+func windowLine(title: String, _ window: LimitWindow?, now: TimeInterval, calendar: Calendar, lang: Lang) -> String {
+    let text = Strings.of(lang)
+    guard let window else { return "\(title): \(text.noData)" }
+    guard window.resetsAt > now else { return "\(title): \(text.wasReset)" }
+    let reset = formatClock(window.resetsAt, now: now, calendar: calendar, lang: lang)
+    return "\(title): \(percentLabel(window.usedPercentage))% · \(text.resets) \(reset)"
 }
 
-func forecastLine(_ window: LimitWindow?, kind: WindowKind, now: TimeInterval, calendar: Calendar) -> String? {
+func forecastLine(_ window: LimitWindow?, kind: WindowKind, now: TimeInterval, calendar: Calendar,
+                  lang: Lang) -> String? {
     guard let window, window.resetsAt > now,
           let end = forecastExhaustion(window, kind: kind, now: now) else { return nil }
-    return "в таком темпе кончится ~\(formatClock(end, now: now, calendar: calendar))"
+    return Strings.of(lang).forecast + formatClock(end, now: now, calendar: calendar, lang: lang)
 }
 
-func updatedLine(_ updatedAt: TimeInterval?, now: TimeInterval) -> String {
-    guard let updatedAt else { return "нет данных: запустите Claude Code" }
+func updatedLine(_ updatedAt: TimeInterval?, now: TimeInterval, lang: Lang) -> String {
+    let text = Strings.of(lang)
+    guard let updatedAt else { return text.never }
     let minutes = Int(max(0, now - updatedAt) / 60)
-    if minutes < 1 { return "обновлено только что" }
-    if minutes < 60 { return "обновлено \(minutes) мин назад" }
-    if minutes < 1_440 { return "обновлено \(minutes / 60) ч назад" }
-    return "обновлено \(minutes / 1_440) д назад"
+    if minutes < 1 { return text.justNow }
+    if minutes < 60 { return String(format: text.minutesAgo, minutes) }
+    if minutes < 1_440 { return String(format: text.hoursAgo, minutes / 60) }
+    return String(format: text.daysAgo, minutes / 1_440)
 }

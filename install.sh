@@ -4,8 +4,13 @@
 # what to do next.
 #
 #   ./install.sh [install] [--force-statusline | --no-statusline] [--no-menubar] [--no-mod]
+#                [--lang ru|en|auto]
 #   ./install.sh check
 #   ./install.sh uninstall
+#
+# Language: every part follows the first macOS system language (Russian or
+# English). --lang ru|en pins it (CLAUDE_LIMITS_LANG in settings.json env and in
+# the launch agent), --lang auto goes back to the system's; no flag keeps it.
 #
 # Lines: "ok <step>: ...", "skip <step>: ...", "fail <step>: ...", then
 # "done", "incomplete" or "conflict".
@@ -144,6 +149,30 @@ configure_settings() {
   fi
 }
 
+# The pinned language, or nothing: settings.json env is where it is kept.
+pinned_lang() {
+  [ -f "$SETTINGS" ] && jq -r '.env.CLAUDE_LIMITS_LANG // empty' "$SETTINGS" 2> /dev/null
+}
+
+configure_lang() {
+  [ -z "$LANG_CHOICE" ] && return
+  local current='{}' next
+  [ -f "$SETTINGS" ] && current=$(cat "$SETTINGS")
+  jq -e . > /dev/null 2>&1 <<< "$current" || { fail "lang: $SETTINGS is not valid JSON"; return; }
+  if [ "$LANG_CHOICE" == auto ]; then
+    next=$(jq 'del(.env.CLAUDE_LIMITS_LANG) | if .env == {} then del(.env) else . end' <<< "$current")
+  else
+    next=$(jq --arg l "$LANG_CHOICE" '.env.CLAUDE_LIMITS_LANG = $l' <<< "$current")
+  fi
+  if [ "$(jq -S . <<< "$current")" == "$(jq -S . <<< "$next")" ]; then
+    ok "lang: already $LANG_CHOICE"
+  elif mkdir -p "$CLAUDE_DIR" && write_settings "$next"; then
+    ok "lang: $LANG_CHOICE (new sessions and the menu bar app follow it)"
+  else
+    fail "lang: cannot write $SETTINGS"
+  fi
+}
+
 build_app() {
   local bin=$APP_BUILD/Contents/MacOS/ClaudeLimits
   if [ -x "$bin" ] && [ -z "$(find menubar/Sources menubar/Info.plist -newer "$bin" 2>/dev/null)" ]; then
@@ -153,6 +182,10 @@ build_app() {
 }
 
 launch_agent_plist() {
+  local lang env=''
+  lang=$(pinned_lang)
+  [ -n "$lang" ] && env="
+  <key>EnvironmentVariables</key><dict><key>CLAUDE_LIMITS_LANG</key><string>$lang</string></dict>"
   cat <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -162,7 +195,7 @@ launch_agent_plist() {
   <key>ProgramArguments</key><array><string>$APP_DST/Contents/MacOS/ClaudeLimits</string></array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
-  <key>ProcessType</key><string>Interactive</string>
+  <key>ProcessType</key><string>Interactive</string>$env
 </dict>
 </plist>
 EOF
@@ -242,6 +275,7 @@ do_install() {
   else
     skip "statusline: --no-statusline"
   fi
+  configure_lang
   if ((WITH_MENUBAR)); then install_menubar; else skip "menubar: --no-menubar"; fi
   if ((WITH_MOD)); then install_mod; else skip "mod: --no-mod"; fi
   if ((FAILED)); then
@@ -262,6 +296,9 @@ do_check() {
   else
     skip "mod: $(no_claude)"
   fi
+  local lang
+  lang=$(pinned_lang)
+  if [ -n "$lang" ]; then ok "lang: $lang, pinned with --lang"; else ok "lang: the first macOS system language"; fi
   if [ -f "$CLAUDE_DIR/limits.json" ]; then
     ok "data: $CLAUDE_DIR/limits.json updated $(( $(date +%s) - $(jq -r '.updated_at // 0' "$CLAUDE_DIR/limits.json") ))s ago"
   else
@@ -277,10 +314,14 @@ do_uninstall() {
   rm -f "$PLIST" && ok "menubar: launch agent removed"
   rm -rf "$APP_DST" && ok "menubar: app removed"
   rm -f "$SCRIPT_DST" "$CLAUDE_DIR/limits.json" && ok "statusline: script and limits.json removed"
-  if [ -f "$SETTINGS" ] && has jq && is_ours < "$SETTINGS"; then
-    write_settings "$(jq 'del(.statusLine)' "$SETTINGS")" && ok "settings: statusLine removed" || fail "settings: cannot write $SETTINGS"
+  if [ -f "$SETTINGS" ] && has jq && { is_ours < "$SETTINGS" || [ -n "$(pinned_lang)" ]; }; then
+    local cleaned
+    cleaned=$(jq --arg a "$SCRIPT_CMD" --arg b "$SCRIPT_DST" '
+      (if .statusLine.command == $a or .statusLine.command == $b then del(.statusLine) else . end)
+      | del(.env.CLAUDE_LIMITS_LANG) | if .env == {} then del(.env) else . end' "$SETTINGS")
+    write_settings "$cleaned" && ok "settings: statusLine and language removed" || fail "settings: cannot write $SETTINGS"
   else
-    skip "settings: no statusLine of ours"
+    skip "settings: nothing of ours"
   fi
   if find_claude; then
     cl plugin uninstall "$PLUGIN" > /dev/null 2>&1
@@ -293,9 +334,13 @@ do_uninstall() {
   echo "done: claude-limits removed"
 }
 
-COMMAND=install FORCE=0 WITH_STATUSLINE=1 WITH_MENUBAR=1 WITH_MOD=1
-for arg in "$@"; do
+COMMAND=install FORCE=0 WITH_STATUSLINE=1 WITH_MENUBAR=1 WITH_MOD=1 LANG_CHOICE=''
+while (($#)); do
+  arg=$1
+  shift
   case $arg in
+    --lang) LANG_CHOICE=${1:-}; shift ;;
+    --lang=*) LANG_CHOICE=${arg#--lang=} ;;
     install | check | uninstall) COMMAND=$arg ;;
     --force-statusline) FORCE=1 ;;
     --no-statusline) WITH_STATUSLINE=0 ;;
@@ -305,6 +350,10 @@ for arg in "$@"; do
     *) echo "fail usage: unknown argument $arg; see ./install.sh --help"; exit 2 ;;
   esac
 done
+case $LANG_CHOICE in
+  '' | ru | en | auto) ;;
+  *) echo "fail usage: --lang takes ru, en or auto, not '$LANG_CHOICE'"; exit 2 ;;
+esac
 
 case $COMMAND in
   install) do_install ;;

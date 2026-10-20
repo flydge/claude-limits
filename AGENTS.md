@@ -58,6 +58,8 @@ Install everything unless the user asked for less. Map their words to flags:
 | only the desktop app rings | `--no-statusline --no-menubar` |
 | to keep their own status line | `--no-statusline` |
 | to replace their status line (after you asked) | `--force-statusline` |
+| a language other than the system's ("in Russian", "по-английски") | `--lang ru` or `--lang en` |
+| the system language again | `--lang auto` |
 
 Use `--no-menubar` too when `swiftc` is missing and Command Line Tools cannot be installed.
 
@@ -92,6 +94,10 @@ Claude app (Code tab)  --$.session---> mod/limit-rings               --> rings a
 - Shared rules: green below 60 %, yellow (`systemOrange` in the menu bar) below 85 %, red from 85 %;
   data older than 30 min is grey in the menu bar; the forecast shows only after 10 minutes of a
   window and only when the current pace runs out before the reset.
+- Language: `CLAUDE_LIMITS_LANG`, else the first macOS system language (`defaults read -g
+  AppleLanguages`); `ru…` is Russian, anything else English. Every user-facing string exists in
+  both: the status line script, `Strings` in `LimitsCore.swift`, `TEXT` in the mod's `limits.ts`.
+  `--lang` keeps the choice in `settings.json` `env` and in the launch agent.
 - Plugin names starting with `claude-` are reserved, hence `limit-rings`.
 - Check icon changes without a screenshot:
   `bash menubar/build.sh && build/ClaudeLimits.app/Contents/MacOS/ClaudeLimits --preview build/preview.png`.

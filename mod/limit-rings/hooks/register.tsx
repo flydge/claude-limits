@@ -5,10 +5,13 @@ import type { LimitWindow, Limits } from '../types'
 import {
   FIVE_HOUR_MS,
   SEVEN_DAY_MS,
+  TEXT,
   limitsFileText,
+  resolveLang,
   ringSvg,
   toLimits,
   windowText,
+  type Lang,
   type RateLimitLike,
 } from './limits'
 
@@ -33,9 +36,22 @@ async function take($: Engine, rateLimits: readonly RateLimitLike[], save: boole
   }
 }
 
+// $CLAUDE_LIMITS_LANG, else the first macOS system language.
+async function systemLang($: Engine): Promise<Lang> {
+  const override = await $.env.get('CLAUDE_LIMITS_LANG')
+  if (override) return resolveLang(override, undefined)
+  const run = await $.process
+    .run(['defaults', 'read', '-g', 'AppleLanguages'], { timeoutMs: 5000 })
+    .catch(() => undefined)
+  return resolveLang(undefined, run?.stdout)
+}
+
 export const register: Register = on => {
+  let lang: Lang = 'en'
+
   on('session.start', async ($, e, next) => {
     const result = await next(e)
+    lang = await systemLang($)
     const usage = await $.session.usage()
     await take($, usage.rateLimits, false)
     // Redraw every minute so a passed reset and the forecast stay current.
@@ -58,8 +74,8 @@ export const register: Register = on => {
     const { Box, Svg, Text } = $.ui.resolve(e)
 
     const item = (key: string, title: string, w: LimitWindow | undefined, lengthMs: number) => {
-      const text = windowText(w, lengthMs, now)
-      const percent = w ? `${Math.round(w.percentUsed)}%` : 'нет данных'
+      const text = windowText(w, lengthMs, now, lang)
+      const percent = w ? `${Math.round(w.percentUsed)}%` : TEXT[lang].noData
       const parts = [
         <Svg source={ringSvg(w, now)} alt={`${title}: ${percent}`} width={20} height={20} />,
         <Text size="footnote"> {title}</Text>,
@@ -75,8 +91,8 @@ export const register: Register = on => {
 
     return (
       <Box flexDirection="row" alignItems="center" columnGap="lg">
-        {item('five-hour', '5 часов', reading.fiveHour, FIVE_HOUR_MS)}
-        {item('seven-day', 'Неделя', reading.sevenDay, SEVEN_DAY_MS)}
+        {item('five-hour', TEXT[lang].fiveHours, reading.fiveHour, FIVE_HOUR_MS)}
+        {item('seven-day', TEXT[lang].week, reading.sevenDay, SEVEN_DAY_MS)}
       </Box>
     )
   })

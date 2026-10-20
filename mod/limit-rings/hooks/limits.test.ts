@@ -5,6 +5,7 @@ import {
   FIVE_HOUR_MS,
   SEVEN_DAY_MS,
   formatClock,
+  resolveLang,
   forecastExhaustion,
   levelColor,
   limitsFileText,
@@ -63,8 +64,8 @@ test('ring states', () => {
 })
 
 test('clock text', () => {
-  expect(formatClock(at(13, 10), now)).toBe('13:10')
-  expect(formatClock(at(14, 0, 24), now)).toBe('пт 14:00')
+  expect(formatClock(at(13, 10), now, 'ru')).toBe('13:10')
+  expect(formatClock(at(14, 0, 24), now, 'ru')).toBe('пт 14:00')
 })
 
 test('forecast', () => {
@@ -76,11 +77,31 @@ test('forecast', () => {
 })
 
 test('window text', () => {
-  expect(windowText({ percentUsed: 62, resetsAt: at(14, 0) }, FIVE_HOUR_MS, now)).toEqual({
+  expect(windowText({ percentUsed: 62, resetsAt: at(14, 0) }, FIVE_HOUR_MS, now, 'ru')).toEqual({
     detail: 'сброс 14:00',
     warning: 'кончится ~12:13',
   })
-  expect(windowText({ percentUsed: 18, resetsAt: at(14, 0, 24) }, SEVEN_DAY_MS, now)).toEqual({ detail: 'сброс пт 14:00' })
-  expect(windowText({ percentUsed: 5, resetsAt: now - 1 }, FIVE_HOUR_MS, now)).toEqual({ detail: 'сброшен' })
-  expect(windowText(undefined, FIVE_HOUR_MS, now)).toEqual({ detail: 'нет данных' })
+  expect(windowText({ percentUsed: 18, resetsAt: at(14, 0, 24) }, SEVEN_DAY_MS, now, 'ru')).toEqual({ detail: 'сброс пт 14:00' })
+  expect(windowText({ percentUsed: 5, resetsAt: now - 1 }, FIVE_HOUR_MS, now, 'ru')).toEqual({ detail: 'сброшен' })
+  expect(windowText(undefined, FIVE_HOUR_MS, now, 'ru')).toEqual({ detail: 'нет данных' })
+})
+
+test('language', () => {
+  const english = '(\n    "en-US",\n    "ru-BY"\n)\n'
+  const russian = '(\n    "ru-BY",\n    "en-US"\n)\n'
+  expect(resolveLang(undefined, english)).toBe('en')
+  expect(resolveLang(undefined, russian)).toBe('ru')
+  expect(resolveLang('ru', english)).toBe('ru')
+  expect(resolveLang(undefined, '(\n    "de-DE"\n)')).toBe('en')
+  expect(resolveLang(undefined, undefined)).toBe('en')
+})
+
+test('english text', () => {
+  expect(formatClock(at(14, 0, 24), now, 'en')).toBe('Fri 14:00')
+  expect(windowText({ percentUsed: 62, resetsAt: at(14, 0) }, FIVE_HOUR_MS, now, 'en')).toEqual({
+    detail: 'resets 14:00',
+    warning: 'runs out ~12:13',
+  })
+  expect(windowText({ percentUsed: 5, resetsAt: now - 1 }, FIVE_HOUR_MS, now, 'en')).toEqual({ detail: 'reset' })
+  expect(windowText(undefined, FIVE_HOUR_MS, now, 'en')).toEqual({ detail: 'no data' })
 })

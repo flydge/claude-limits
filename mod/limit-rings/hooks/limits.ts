@@ -9,7 +9,26 @@ export type RateLimitLike = { kind: string; percentUsed: number; resetsAt?: stri
 export const FIVE_HOUR_MS = 18_000_000
 export const SEVEN_DAY_MS = 604_800_000
 const FORECAST_MIN_ELAPSED_MS = 600_000
-const WEEKDAYS = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб']
+
+export type Lang = 'en' | 'ru'
+
+export const TEXT = {
+  en: {
+    fiveHours: '5 hours', week: 'Week', resets: 'resets', wasReset: 'reset', noData: 'no data',
+    runsOut: 'runs out ~', weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+  },
+  ru: {
+    fiveHours: '5 часов', week: 'Неделя', resets: 'сброс', wasReset: 'сброшен', noData: 'нет данных',
+    runsOut: 'кончится ~', weekdays: ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'],
+  },
+} as const
+
+// `override` is $CLAUDE_LIMITS_LANG; `appleLanguages` is the output of
+// `defaults read -g AppleLanguages`, whose first entry is the system language.
+export function resolveLang(override: string | undefined, appleLanguages: string | undefined): Lang {
+  const code = override || appleLanguages?.match(/[A-Za-z]{2}[A-Za-z-]*/)?.[0] || ''
+  return code.toLowerCase().startsWith('ru') ? 'ru' : 'en'
+}
 
 export const COLORS = { ok: '#34C759', warn: '#FF9500', danger: '#FF3B30', muted: '#8E8E93' }
 
@@ -74,13 +93,13 @@ export function ringSvg(w: LimitWindow | undefined, now: number): string {
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
-export function formatClock(time: number, now: number): string {
+export function formatClock(time: number, now: number, lang: Lang): string {
   const d = new Date(time)
   const n = new Date(now)
   const clock = `${pad(d.getHours())}:${pad(d.getMinutes())}`
   const isSameDay =
     d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate()
-  return isSameDay ? clock : `${WEEKDAYS[d.getDay()]} ${clock}`
+  return isSameDay ? clock : `${TEXT[lang].weekdays[d.getDay()]} ${clock}`
 }
 
 export function forecastExhaustion(w: LimitWindow, lengthMs: number, now: number): number | undefined {
@@ -93,10 +112,11 @@ export function forecastExhaustion(w: LimitWindow, lengthMs: number, now: number
 
 export type WindowText = { detail: string; warning?: string }
 
-export function windowText(w: LimitWindow | undefined, lengthMs: number, now: number): WindowText {
-  if (!w) return { detail: 'нет данных' }
-  if (w.resetsAt <= now) return { detail: 'сброшен' }
-  const detail = `сброс ${formatClock(w.resetsAt, now)}`
+export function windowText(w: LimitWindow | undefined, lengthMs: number, now: number, lang: Lang): WindowText {
+  const text = TEXT[lang]
+  if (!w) return { detail: text.noData }
+  if (w.resetsAt <= now) return { detail: text.wasReset }
+  const detail = `${text.resets} ${formatClock(w.resetsAt, now, lang)}`
   const end = forecastExhaustion(w, lengthMs, now)
-  return end === undefined ? { detail } : { detail, warning: `кончится ~${formatClock(end, now)}` }
+  return end === undefined ? { detail } : { detail, warning: `${text.runsOut}${formatClock(end, now, lang)}` }
 }

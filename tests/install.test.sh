@@ -147,6 +147,24 @@ chmod +x "$ROOT_TMP/good/claude"
 out=$(CLAUDE_BIN=$ROOT_TMP/good/claude inst --no-menubar); code=$?
 expect "CLAUDE_BIN is used" 1 "$(count 'plugin install limit-rings@flydge')"
 
+# --lang pins the language for all three parts; no flag keeps the choice.
+fresh
+out=$(inst --lang ru --no-mod); code=$?
+plist=$HOME_DIR/Library/LaunchAgents/com.flydge.claude-limits.plist
+expect "--lang exits 0" 0 "$code"
+expect "--lang sets settings env" ru "$(settings | jq -r .env.CLAUDE_LIMITS_LANG)"
+expect "--lang reaches the menu bar app" yes "$(grep -q '<key>CLAUDE_LIMITS_LANG</key><string>ru</string>' "$plist" && echo yes)"
+inst --no-mod >/dev/null
+expect "no flag keeps the language" ru "$(settings | jq -r .env.CLAUDE_LIMITS_LANG)"
+out=$(inst --lang=auto --no-mod); code=$?
+expect "--lang=auto exits 0" 0 "$code"
+expect "--lang=auto removes it" null "$(settings | jq -c .env)"
+expect "--lang=auto clears the app" no "$(grep -q CLAUDE_LIMITS_LANG "$plist" && echo yes || echo no)"
+expect "bad language exits 2" 2 "$(inst --lang de >/dev/null; echo $?)"
+inst --lang en --no-mod >/dev/null
+inst uninstall >/dev/null
+expect "uninstall removes the language" null "$(settings | jq -c .env)"
+
 # Flags turn parts off.
 fresh
 out=$(inst --no-menubar --no-mod); code=$?
