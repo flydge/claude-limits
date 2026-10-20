@@ -1,0 +1,13 @@
+{
+  "name": "flydge",
+  "owner": { "name": "flydge" },
+  "metadata": { "description": "Claude subscription limits in Claude Code" },
+  "plugins": [
+    {
+      "name": "limit-rings",
+      "source": "./mod/limit-rings",
+      "description": "5-hour and weekly Claude limits as rings above the prompt in the desktop app",
+      "version": "0.1.0"
+    }
+  ]
+}
