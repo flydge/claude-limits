@@ -1,0 +1,26 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Status line
+        run: bash statusline/test/run.sh
+      - name: Menu bar logic
+        run: bash menubar/test.sh
+      - name: Installer
+        run: bash tests/install.test.sh
+      - name: Install Claude Code
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Desktop mod
+        run: |
+          claude plugin validate .
+          claude plugin validate mod/limit-rings
+          claude plugin test mod/limit-rings

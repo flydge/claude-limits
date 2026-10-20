@@ -1,5 +1,7 @@
 # claude-limits
 
+[![test](https://github.com/flydge/claude-limits/actions/workflows/test.yml/badge.svg)](https://github.com/flydge/claude-limits/actions/workflows/test.yml)
+
 **Установка:** вставьте в Claude Code (терминал или приложение Claude) одну фразу:
 
 ```
@@ -93,3 +95,7 @@ bash tests/install.test.sh           # тесты установщика (вре
 bash menubar/build.sh                # сборка build/ClaudeLimits.app
 python3 tools/readme-images.py       # картинки для README
 ```
+
+## Лицензия
+
+MIT, см. [LICENSE](LICENSE).
