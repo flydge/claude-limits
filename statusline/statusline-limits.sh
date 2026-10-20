@@ -5,6 +5,7 @@
 
 NOW=${CLAUDE_LIMITS_NOW:-$(date +%s)}
 LIMITS_FILE=${CLAUDE_LIMITS_FILE:-$HOME/.claude/limits.json}
+CACHE_DIR=${CLAUDE_LIMITS_CACHE:-${TMPDIR:-/tmp}/claude-limits}
 
 if [ -n "${NO_COLOR:-}" ]; then
   RESET='' MUTED='' GREEN='' YELLOW='' RED=''
@@ -67,21 +68,29 @@ segment() {  # label percent eighths level resets
     "$color" "$pct" "$RESET" "$MUTED" "$(format_left "$left")" "$RESET"
 }
 
+# Writes the reading only when this session's numbers changed since it last wrote
+# them. Claude Code re-runs the script every minute with the last response's
+# numbers, so an idle session must not overwrite a fresher reading from another.
 save_limits() {
-  local dir tmp
-  dir=$(dirname "$LIMITS_FILE")
-  mkdir -p "$dir" 2>/dev/null || return
-  tmp=$(mktemp "$dir/.limits.XXXXXX" 2>/dev/null) || return
-  if printf '%s' "$input" | jq -c --argjson now "$NOW" '
+  local dir tmp windows session cache
+  windows=$(printf '%s' "$input" | jq -c '
       def valid(w): (w | type) == "object"
         and (w.used_percentage | type) == "number" and (w.resets_at | type) == "number";
       def pick(w): {used_percentage: w.used_percentage, resets_at: w.resets_at};
       .rate_limits as $r
-      | {updated_at: $now}
-        + (if valid($r.five_hour) then {five_hour: pick($r.five_hour)} else {} end)
+      | (if valid($r.five_hour) then {five_hour: pick($r.five_hour)} else {} end)
         + (if valid($r.seven_day) then {seven_day: pick($r.seven_day)} else {} end)
-    ' > "$tmp" 2>/dev/null; then
+    ' 2>/dev/null) || return
+  session=$(printf '%s' "$input" | jq -r '.session_id // "default"' 2>/dev/null | tr -cd 'A-Za-z0-9_-')
+  cache="$CACHE_DIR/${session:-default}"
+  [ "$(cat "$cache" 2>/dev/null)" == "$windows" ] && return
+
+  dir=$(dirname "$LIMITS_FILE")
+  mkdir -p "$dir" "$CACHE_DIR" 2>/dev/null || return
+  tmp=$(mktemp "$dir/.limits.XXXXXX" 2>/dev/null) || return
+  if printf '%s' "$windows" | jq -c --argjson now "$NOW" '{updated_at: $now} + .' > "$tmp" 2>/dev/null; then
     mv -f "$tmp" "$LIMITS_FILE"
+    printf '%s' "$windows" > "$cache"
   else
     rm -f "$tmp"
   fi

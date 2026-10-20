@@ -19,6 +19,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refresh()
         timer = Timer.scheduledTimer(timeInterval: 30, target: self, selector: #selector(tick),
                                      userInfo: nil, repeats: true)
+        // The digits are drawn in labelColor: redraw at once when the theme flips.
+        DistributedNotificationCenter.default().addObserver(
+            self, selector: #selector(tick), name: Notification.Name("AppleInterfaceThemeChangedNotification"),
+            object: nil)
     }
 
     func menuWillOpen(_ menu: NSMenu) {

@@ -7,11 +7,16 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 FAILS=0
 
+export CLAUDE_LIMITS_CACHE="$TMP/cache"
+
 run() {  # $1 = stdin
   printf '%s' "$1" | NO_COLOR=1 CLAUDE_LIMITS_NOW=$NOW CLAUDE_LIMITS_FILE="$TMP/limits.json" bash "$SCRIPT"
 }
 run_colored() {  # $1 = stdin
   printf '%s' "$1" | env -u NO_COLOR CLAUDE_LIMITS_NOW=$NOW CLAUDE_LIMITS_FILE="$TMP/limits.json" bash "$SCRIPT"
+}
+with_session() {  # session id, limits JSON -> the JSON with session_id added
+  printf '%s' "$2" | jq -c --arg id "$1" '. + {session_id: $id}'
 }
 expect() {  # name expected actual
   if [ "$2" == "$3" ]; then
@@ -63,6 +68,20 @@ expect "fractional percent" "5ч ██▍······· 24% 2ч10м" "$(run "$(
 expect "past reset hidden" "нед █▊········ 18% 4д3ч" "$(run "$(limits "$(win 42 -10)" "$W7")")"
 expect "minutes" "5ч ████▎····· 42% 45м" "$(run "$(limits "$(win 42 2700)" "")")"
 expect "under a minute" "5ч ████▎····· 42% 1м" "$(run "$(limits "$(win 42 30)" "")")"
+
+# An idle session re-runs every minute with the same old numbers: it must not
+# overwrite what another session wrote since.
+S1=$(with_session one "$(limits "$H5" "$W7")")
+rm -rf "$TMP/limits.json" "$TMP/cache"
+run "$S1" >/dev/null
+echo '{"updated_at":1}' > "$TMP/limits.json"
+run "$S1" >/dev/null
+expect "same data again leaves file alone" '{"updated_at":1}' "$(cat "$TMP/limits.json")"
+run "$(with_session one "$(limits "$(win 43 7800)" "$W7")")" >/dev/null
+expect "changed data rewrites file" "43" "$(jq -r '.five_hour.used_percentage' "$TMP/limits.json")"
+echo '{"updated_at":1}' > "$TMP/limits.json"
+run "$(with_session two "$(limits "$(win 43 7800)" "$W7")")" >/dev/null
+expect "another session writes its first reading" "43" "$(jq -r '.five_hour.used_percentage' "$TMP/limits.json")"
 
 expect "green below 60" yes "$(contains "$(run_colored "$(limits "$(win 59.9 7800)" "")")" $'\e[32m')"
 expect "yellow at 62" yes "$(contains "$(run_colored "$(limits "$(win 62 7800)" "")")" $'\e[33m')"
