@@ -201,15 +201,25 @@ launch_agent_plist() {
 EOF
 }
 
+# bootout is asynchronous: wait until launchd no longer lists the agent.
+wait_unloaded() {  # domain/label
+  local i
+  for ((i = 0; i < 50; i++)); do
+    launchctl print "$1" > /dev/null 2>&1 || return 0
+    sleep 0.1
+  done
+  return 1
+}
+
 install_menubar() {
   build_app || { fail "menubar: build failed; run: bash menubar/build.sh"; return; }
-  local changed=0
+  local app_changed=0 plist_changed=0
   if cmp -s "$APP_BUILD/Contents/MacOS/ClaudeLimits" "$APP_DST/Contents/MacOS/ClaudeLimits"; then
     ok "menubar: app already current at $APP_DST"
   else
     mkdir -p "$HOME/Applications" && rm -rf "$APP_DST" && cp -R "$APP_BUILD" "$APP_DST" \
       || { fail "menubar: cannot copy the app to $APP_DST"; return; }
-    changed=1
+    app_changed=1
     ok "menubar: app installed at $APP_DST"
   fi
 
@@ -218,13 +228,17 @@ install_menubar() {
   if [ "$(cat "$PLIST" 2>/dev/null)" != "$want" ]; then
     mkdir -p "$(dirname "$PLIST")" && printf '%s\n' "$want" > "$PLIST" \
       || { fail "menubar: cannot write $PLIST"; return; }
-    changed=1
+    plist_changed=1
   fi
   if launchctl print "$domain/$LABEL" >/dev/null 2>&1; then
-    if ((changed)); then
+    if ((plist_changed)); then
       launchctl bootout "$domain/$LABEL" >/dev/null 2>&1
+      wait_unloaded "$domain/$LABEL" || { fail "menubar: launch agent $LABEL did not unload"; return; }
       launchctl bootstrap "$domain" "$PLIST" >/dev/null 2>&1 || { fail "menubar: launchctl bootstrap failed"; return; }
-      ok "menubar: launch agent $LABEL restarted"
+      ok "menubar: launch agent $LABEL reloaded"
+    elif ((app_changed)); then
+      launchctl kickstart -k "$domain/$LABEL" >/dev/null 2>&1 || { fail "menubar: launchctl kickstart failed"; return; }
+      ok "menubar: launch agent $LABEL restarted with the new app"
     else
       ok "menubar: launch agent $LABEL already running"
     fi
@@ -310,7 +324,7 @@ do_check() {
 
 do_uninstall() {
   local domain="gui/$(id -u)"
-  launchctl bootout "$domain/$LABEL" >/dev/null 2>&1
+  launchctl bootout "$domain/$LABEL" >/dev/null 2>&1 && wait_unloaded "$domain/$LABEL"
   rm -f "$PLIST" && ok "menubar: launch agent removed"
   rm -rf "$APP_DST" && ok "menubar: app removed"
   rm -f "$SCRIPT_DST" "$CLAUDE_DIR/limits.json" && ok "statusline: script and limits.json removed"

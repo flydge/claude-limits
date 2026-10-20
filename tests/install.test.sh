@@ -39,10 +39,16 @@ EOF
   cat > "$STUBS/launchctl" <<'EOF'
 #!/bin/bash
 echo "launchctl $*" >> "$STUB_LOG"
+# Like launchd, bootout is asynchronous: the agent is still listed once after it,
+# and bootstrap fails while it is.
 case "$1" in
-  bootstrap) touch "$STUB_STATE/agent" ;;
-  bootout) [ -f "$STUB_STATE/agent" ] || exit 3; rm -f "$STUB_STATE/agent" ;;
-  print) [ -f "$STUB_STATE/agent" ] ;;
+  bootstrap) [ -f "$STUB_STATE/agent" ] && exit 5; touch "$STUB_STATE/agent" ;;
+  bootout) [ -f "$STUB_STATE/agent" ] || exit 3; touch "$STUB_STATE/dying" ;;
+  print)
+    [ -f "$STUB_STATE/agent" ] || exit 113
+    if [ -f "$STUB_STATE/dying" ]; then rm -f "$STUB_STATE/agent" "$STUB_STATE/dying"; fi
+    exit 0 ;;
+  kickstart) [ -f "$STUB_STATE/agent" ] || exit 113 ;;
 esac
 EOF
   chmod +x "$STUBS/claude" "$STUBS/launchctl"
@@ -80,6 +86,16 @@ expect "rerun leaves settings" "$before" "$(settings)"
 expect "rerun makes no new backup" 1 "$(ls "$HOME_DIR/.claude/" | grep -c 'settings.json.bak')"
 expect "rerun adds no marketplace" 1 "$(count 'plugin marketplace add')"
 expect "rerun installs no mod" 1 "$(count 'plugin install ')"
+
+# A new app build restarts the running agent; a changed plist reloads it.
+printf 'x' >> "$HOME_DIR/Applications/ClaudeLimits.app/Contents/MacOS/ClaudeLimits"
+out=$(inst); code=$?
+expect "app update exits 0" 0 "$code"
+expect "app update restarts in place" 1 "$(count 'launchctl kickstart -k')"
+out=$(inst --lang ru); code=$?
+expect "plist change exits 0" 0 "$code"
+expect "plist change reloads the agent" yes "$([ -f "$STATE/agent" ] && echo yes)"
+inst --lang auto >/dev/null
 
 # Uninstall removes what install added, and only that.
 out=$(inst uninstall); code=$?
