@@ -1,5 +1,18 @@
 # claude-limits
 
+**Установка:** вставьте в Claude Code (терминал или приложение Claude) одну фразу:
+
+```
+Установи https://github.com/flydge/claude-limits
+```
+
+Агент сам склонирует репозиторий, запустит установщик и проверит результат по [AGENTS.md](AGENTS.md).
+
+> **For AI agents:** follow [AGENTS.md](AGENTS.md). In short: clone to `~/claude-limits`
+> (or `git -C ~/claude-limits pull --ff-only`), run `~/claude-limits/install.sh`, act on its
+> exit code (0 done, 1 fix the `fail` lines, 2 install the named requirement, 3 ask the user
+> about their existing `statusLine`), then run `~/claude-limits/install.sh check`.
+
 Расход 5-часового и недельного лимита подписки Claude (Pro или Max) всегда перед глазами,
 в трёх местах:
 
@@ -38,55 +51,26 @@ Claude (приложение) ──$.session──▶ мод limit-rings ──
 Файл перезаписывается только свежими данными: простаивающая сессия не затирает то,
 что недавно записала другая. Если данных нет больше 30 минут, кольца в строке меню сереют.
 
-## Установка
+## Установка вручную
 
 Требования: macOS 13+, `jq`, Command Line Tools (`swiftc`), подписка Claude Pro или Max.
 
-### Строка статуса и значок в строке меню
-
 ```bash
-git clone https://github.com/flydge/claude-limits.git && cd claude-limits && ./install.sh
+git clone https://github.com/flydge/claude-limits.git ~/claude-limits && ~/claude-limits/install.sh
 ```
 
-Затем добавьте в `~/.claude/settings.json`:
+Установщик ставит все три части сразу и безопасен при повторном запуске:
 
-```json
-"statusLine": {
-  "type": "command",
-  "command": "~/.claude/statusline-limits.sh",
-  "refreshInterval": 60
-}
-```
+- **строка статуса** — скрипт в `~/.claude/` и блок `statusLine` в `~/.claude/settings.json`
+  (старый файл сохраняется рядом);
+- **значок в строке меню** — `~/Applications/ClaudeLimits.app` и автозапуск при входе;
+- **кольца в приложении** — плагин `limit-rings@flydge` из маркетплейса `flydge/claude-limits`.
+  В терминальном Claude Code он ничего не рисует, там уже есть строка статуса.
 
-Автозапуск значка при входе в систему:
-
-```bash
-bash menubar/install-launch-agent.sh
-```
-
-### Кольца над полем ввода в приложении Claude
-
-В приложении: «+» рядом с полем ввода → Plugins → Add marketplace → `flydge/claude-limits` →
-Add plugin → `limit-rings`.
-
-Из терминала:
-
-```bash
-claude plugin install limit-rings --marketplace flydge/claude-limits
-```
-
-В терминальном Claude Code мод ничего не рисует, там уже есть строка статуса. Он только
-обновляет `~/.claude/limits.json` для значка в строке меню.
-
-## Удаление
-
-```bash
-launchctl bootout "gui/$(id -u)/com.flydge.claude-limits"; rm -f ~/Library/LaunchAgents/com.flydge.claude-limits.plist
-rm -rf ~/Applications/ClaudeLimits.app ~/.claude/statusline-limits.sh ~/.claude/limits.json
-claude plugin uninstall limit-rings
-```
-
-И уберите `statusLine` из `~/.claude/settings.json`.
+Флаги: `--no-statusline`, `--no-menubar`, `--no-mod`, `--force-statusline` (заменить чужую
+строку статуса). Проверка: `~/claude-limits/install.sh check`. Удаление:
+`~/claude-limits/install.sh uninstall`. Обновление:
+`git -C ~/claude-limits pull --ff-only && ~/claude-limits/install.sh`.
 
 ## Устройство репозитория
 
@@ -95,6 +79,7 @@ claude plugin uninstall limit-rings
 | `statusline/` | bash-скрипт строки статуса и его тесты |
 | `menubar/` | приложение строки меню на Swift/AppKit без Xcode-проекта: логика (`LimitsCore.swift`) отдельно от интерфейса |
 | `mod/limit-rings/` | мод для приложения Claude: кольца над полем ввода |
+| `install.sh`, `tests/` | установщик для агентов и его тесты |
 | `tools/readme-images.py` | перерисовывает картинки этого README из настоящего кода |
 | `docs/superpowers/` | спецификация и план реализации |
 
@@ -104,6 +89,7 @@ claude plugin uninstall limit-rings
 bash statusline/test/run.sh          # тесты строки статуса
 bash menubar/test.sh                 # тесты логики строки меню
 claude plugin test mod/limit-rings   # тесты мода
+bash tests/install.test.sh           # тесты установщика (временный HOME, заглушки claude и launchctl)
 bash menubar/build.sh                # сборка build/ClaudeLimits.app
 python3 tools/readme-images.py       # картинки для README
 ```
