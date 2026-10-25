@@ -9,7 +9,7 @@ few lines at the end.
 - `~/.claude/statusline-limits.sh` and a `statusLine` entry in `~/.claude/settings.json`:
   5-hour and weekly limit bars in the terminal Claude Code status line.
 - `~/Applications/ClaudeLimits.app` with a user LaunchAgent `com.flydge.claude-limits`:
-  two rings in the macOS menu bar, started at login.
+  two rings in the macOS menu bar, started at login, and beside them memory and disk rings.
 - The Claude Code plugin `limit-rings@flydge` from the marketplace `flydge/claude-limits`:
   rings above the prompt in the Claude desktop app's Code tab.
 
@@ -82,8 +82,19 @@ How the parts fit:
 Claude Code (terminal) --stdin JSON--> statusline/statusline-limits.sh --> status line
 Claude app (Code tab)  --$.session---> mod/limit-rings               --> rings above the prompt
                 both write ~/.claude/limits.json --> menubar/ (ClaudeLimits.app) --> menu bar rings
+ClaudeLimits.app --every 5 s--> ~/.claude/system.json --> mod/limit-rings --> memory and disk row
 ```
 
+- The memory and disk item (`SystemCore.swift` logic, `SystemProbe.swift` kernel reads, `SystemItem.swift`
+  menu) reads local kernel stats only: `host_statistics64`, `vm.swapusage`,
+  `kern.memorystatus_vm_pressure_level`, the boot volume's capacity and `proc_pid_rusage` footprints of
+  the user's own processes. Its levels: memory is the worse of pressure (warn/critical) and swap
+  (≥ 25 % / ≥ 50 % of RAM); disk is orange below 50 GB free, red below 20 GB. One notification per fall
+  into red, at most every 30 min per ring. Every 5 s it writes `~/.claude/system.json` (`systemJSON` in
+  `SystemCore.swift`: `updated_at`, `memory`, `disk` with their `level`s, `top` apps); the mod
+  (`hooks/system.ts`) only reads that file, so open sessions spawn nothing, and runs
+  `ClaudeLimits --system-json` itself only when the file is missing or older than 30 s, in desktop
+  sessions only. The levels are computed in Swift alone; the mod draws what the file says.
 - Data: only what Claude Code reports (`rate_limits.five_hour|seven_day` on the status
   line's stdin; `$.session.usage()` and `session.measure` in the mod). Never add network
   calls, credentials, cookies or the OAuth token.
@@ -96,7 +107,8 @@ Claude app (Code tab)  --$.session---> mod/limit-rings               --> rings a
   window and only when the current pace runs out before the reset.
 - Language: `CLAUDE_LIMITS_LANG`, else the first macOS system language (`defaults read -g
   AppleLanguages`); `ru…` is Russian, anything else English. Every user-facing string exists in
-  both: the status line script, `Strings` in `LimitsCore.swift`, `TEXT` in the mod's `limits.ts`.
+  both: the status line script, `Strings` in `LimitsCore.swift`, `SystemStrings` in `SystemCore.swift`, `TEXT` in the mod's `limits.ts`
+  and `SYSTEM_TEXT` in its `system.ts`.
   `--lang` keeps the choice in `settings.json` `env` and in the launch agent.
 - Plugin names starting with `claude-` are reserved, hence `limit-rings`.
 - Check icon changes without a screenshot:

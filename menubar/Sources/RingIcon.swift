@@ -1,6 +1,7 @@
 import AppKit
 
-// Draws the menu bar icon: two rings with the percentage inside.
+// Draws the menu bar icons: two rings with the percentage inside, and for the system
+// item each ring after a small memory or disk symbol.
 
 enum RingIcon {
     static let ringSize: CGFloat = 20
@@ -16,6 +17,32 @@ enum RingIcon {
         }
         image.isTemplate = false
         return image
+    }
+
+    static let symbolWidth: CGFloat = 16
+
+    static func systemImage(memory: RingState, disk: RingState) -> NSImage {
+        let pair = symbolWidth + ringSize
+        let size = NSSize(width: pair * 2 + gap, height: ringSize)
+        let image = NSImage(size: size, flipped: false) { _ in
+            drawSymbol("memorychip", in: NSRect(x: 0, y: 0, width: symbolWidth, height: ringSize))
+            draw(memory, in: NSRect(x: symbolWidth, y: 0, width: ringSize, height: ringSize))
+            drawSymbol("internaldrive", in: NSRect(x: pair + gap, y: 0, width: symbolWidth, height: ringSize))
+            draw(disk, in: NSRect(x: pair + gap + symbolWidth, y: 0, width: ringSize, height: ringSize))
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+
+    private static func drawSymbol(_ name: String, in rect: NSRect) {
+        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [.labelColor]))
+        guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(config) else { return }
+        let size = symbol.size
+        symbol.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2,
+                               width: size.width, height: size.height))
     }
 
     static func color(for state: RingState) -> NSColor {

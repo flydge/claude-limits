@@ -60,20 +60,16 @@ export function levelColor(used: number): string {
 }
 
 export function ringSvg(w: LimitWindow | undefined, now: number): string {
-  let fraction = 0
-  let label = '–'
-  let color = COLORS.muted
-  if (w && w.resetsAt > now) {
-    if (w.percentUsed >= 100) {
-      fraction = 1
-      label = '!'
-      color = COLORS.danger
-    } else {
-      fraction = Math.max(0, w.percentUsed) / 100
-      label = String(Math.min(99, Math.round(w.percentUsed)))
-      color = levelColor(w.percentUsed)
-    }
-  }
+  if (!w || w.resetsAt <= now) return ringSvgOf(0, COLORS.muted, '–')
+  if (w.percentUsed >= 100) return ringSvgOf(1, COLORS.danger, '!')
+  return ringSvgOf(
+    Math.max(0, w.percentUsed) / 100,
+    levelColor(w.percentUsed),
+    String(Math.min(99, Math.round(w.percentUsed))),
+  )
+}
+
+export function ringSvgOf(fraction: number, color: string, label: string): string {
   const r = 8.5
   const length = 2 * Math.PI * r
   const ring = (extra: string) =>

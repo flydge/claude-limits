@@ -37,6 +37,18 @@ git -C ~/claude-limits pull --ff-only 2>/dev/null || git clone https://github.co
 ![Two rings in the menu bar](docs/images/menubar.png)
 ![Menu with both limits and their resets](docs/images/menu.png)
 
+Beside the limits, a second menu bar item shows **memory and disk**: a ring for the share of
+RAM in use and one for the boot disk, each after a small chip or drive symbol. Memory turns
+orange at high memory pressure or swap of a quarter of RAM, red at critical pressure or swap of
+half of RAM; the disk turns orange below 50 GB free and red below 20 GB, since swap lives on it.
+The menu lists compressed memory, swap, free space and the apps using the most memory (all their
+helper processes counted together), and a notification arrives when either ring turns red.
+`ClaudeLimits --system` prints the same in the terminal.
+
+The menu bar app also writes each reading to `~/.claude/system.json` every 5 seconds, and the
+Claude app draws it as a second row under the limit rings: memory used and swap, free disk space.
+Press it for the details and the apps using the most memory.
+
 Green below 60 %, orange below 85 %, red above. When the current pace runs out before the
 reset, a forecast appears. Text follows the macOS language, English or Russian (the menu above
 is Russian); `install.sh --lang en|ru|auto` pins it.

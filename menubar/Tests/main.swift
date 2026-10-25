@@ -86,5 +86,72 @@ check("english reset", windowLine(title: "Week", LimitWindow(usedPercentage: 5, 
 check("english updated", updatedLine(now - 150, now: now, lang: .en), "updated 2 min ago")
 check("english never", updatedLine(nil, now: now, lang: .en), "no data: run Claude Code")
 
+// System item
+let gib64: UInt64 = 1_073_741_824
+func mem(used: UInt64, swap: UInt64 = 0, pressure: Pressure = .normal) -> MemoryReading {
+    MemoryReading(total: 48 * gib64, used: used * gib64, compressed: 20 * gib64, swapUsed: swap * gib64,
+                  pressure: pressure)
+}
+check("pressure from sysctl", [1, 2, 4, 0].map { Pressure(sysctlLevel: $0) }, [.normal, .warn, .critical, .normal])
+check("memory ok", memoryLevel(mem(used: 40)), .ok)
+check("memory pressure warn", memoryLevel(mem(used: 40, pressure: .warn)), .warn)
+check("memory pressure critical", memoryLevel(mem(used: 40, pressure: .critical)), .danger)
+check("swap quarter of ram warns", memoryLevel(mem(used: 40, swap: 12)), .warn)
+check("swap half of ram is danger", memoryLevel(mem(used: 40, swap: 24, pressure: .warn)), .danger)
+check("memory ring", memoryRing(mem(used: 42, swap: 29, pressure: .warn)),
+      .normal(fraction: 0.875, level: .danger, label: "88"))
+check("memory ring missing", memoryRing(nil), .empty)
+
+let tb: UInt64 = 995_000_000_000
+check("disk ok", diskLevel(DiskReading(total: tb, available: 50_000_000_000)), .ok)
+check("disk warn", diskLevel(DiskReading(total: tb, available: 49_999_999_999)), .warn)
+check("disk danger", diskLevel(DiskReading(total: tb, available: 19_200_000_000)), .danger)
+check("disk ring", diskRing(DiskReading(total: tb, available: 19_200_000_000)),
+      .normal(fraction: 1 - 19.2 / 995, level: .danger, label: "98"))
+check("disk ring available above total", diskRing(DiskReading(total: 10, available: 20)),
+      .normal(fraction: 0, level: .danger, label: "0"))
+
+check("alert on fall into red", shouldAlert(previous: .warn, current: .danger, lastAlert: nil, now: now), true)
+check("alert at launch in red", shouldAlert(previous: nil, current: .danger, lastAlert: nil, now: now), true)
+check("no alert while staying red", shouldAlert(previous: .danger, current: .danger, lastAlert: nil, now: now), false)
+check("no alert outside red", shouldAlert(previous: .ok, current: .warn, lastAlert: nil, now: now), false)
+check("no alert within cooldown", shouldAlert(previous: .warn, current: .danger, lastAlert: now - 1_799, now: now), false)
+check("alert after cooldown", shouldAlert(previous: .warn, current: .danger, lastAlert: now - 1_800, now: now), true)
+
+check("app from helper", appName(fromPath: "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer)"), "Google Chrome")
+check("app claude code in desktop", appName(fromPath: "/Users/u/Library/Application Support/Claude/claude-code/2.1.299/4fa9/claude.app/Contents/MacOS/claude"), "Claude Code")
+check("app claude code cli", appName(fromPath: "/Users/u/.local/share/claude/versions/2.1.299"), "Claude Code")
+check("app plain binary", appName(fromPath: "/opt/homebrew/Cellar/node/24.1.0/bin/node"), "node")
+check("group processes", groupProcesses([
+    (path: "/Applications/Claude.app/Contents/MacOS/Claude", footprint: 3),
+    (path: "/usr/local/bin/node", footprint: 4),
+    (path: "/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper", footprint: 2),
+    (path: "/bin/zsh", footprint: 1),
+], limit: 2), [ProcessGroup(name: "Claude", count: 2, footprint: 5), ProcessGroup(name: "node", count: 1, footprint: 4)])
+
+check("size one decimal ru", formatSize(45_500_000_000, unit: gigabyte, lang: .ru), "45,5")
+check("size whole", formatSize(48 * gib64, unit: gibibyte, lang: .en), "48")
+check("size above hundred", formatSize(994_700_000_000, unit: gigabyte, lang: .en), "995")
+check("memory line ru", memoryLine(mem(used: 42, swap: 29, pressure: .warn), lang: .ru),
+      "Память: занято 42 из 48 ГБ · давление: высокое")
+check("memory line en", memoryLine(mem(used: 42, pressure: .critical), lang: .en),
+      "Memory: used 42 of 48 GB · pressure: critical")
+check("memory detail", memoryDetailLine(mem(used: 42, swap: 29), lang: .ru), "сжато 20 ГБ · своп 29 ГБ")
+check("disk line ru", diskLine(DiskReading(total: tb, available: 19_200_000_000), lang: .ru),
+      "Диск: свободно 19,2 из 995 ГБ")
+check("disk line missing", diskLine(nil, lang: .en), "Disk: no data")
+check("process line", processLine(ProcessGroup(name: "ChatGPT", count: 292, footprint: 25_340_000_000), lang: .ru),
+      "ChatGPT ×292 · 23,6 ГБ")
+check("process line single", processLine(ProcessGroup(name: "Xogot", count: 1, footprint: 2 * gib64), lang: .en),
+      "Xogot · 2 GB")
+
+check("system json", systemJSON(memory: mem(used: 42, swap: 29, pressure: .warn),
+                                disk: DiskReading(total: 100, available: 10),
+                                top: [ProcessGroup(name: "node", count: 2, footprint: 5)]),
+      #"{"disk":{"available":10,"level":"danger","total":100},"memory":{"compressed":21474836480,"level":"danger","pressure":"warn","swap_used":31138512896,"total":51539607552,"used":45097156608},"top":[{"count":2,"footprint":5,"name":"node"}]}"#)
+check("system json empty", systemJSON(memory: nil, disk: nil, top: []), #"{"top":[]}"#)
+check("system json stamped", systemJSON(memory: nil, disk: nil, top: [], updatedAt: 1_760_958_000.7),
+      #"{"top":[],"updated_at":1760958000}"#)
+
 print(failures == 0 ? "\nall passed" : "\n\(failures) failed")
 exit(failures == 0 ? 0 : 1)

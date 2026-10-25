@@ -1,6 +1,6 @@
 import AppKit
 
-// Renders every ring state, in light and dark appearance, to a PNG so the icon
+// Renders every ring state and the system item, in light and dark appearance, to a PNG so the icon
 // can be checked without the menu bar:  ClaudeLimits --preview out.png
 
 enum Preview {
@@ -11,12 +11,20 @@ enum Preview {
             (.exhausted, .stale(fraction: 0.3, label: "30")),
             (.empty, .empty),
         ]
+        let images: [() -> NSImage] = rows.map { row in { RingIcon.image(row.0, row.1) } } + [
+            { RingIcon.systemImage(memory: .normal(fraction: 0.55, level: .ok, label: "55"),
+                                   disk: .normal(fraction: 0.7, level: .warn, label: "70")) },
+            { RingIcon.systemImage(memory: .normal(fraction: 0.93, level: .danger, label: "93"),
+                                   disk: .normal(fraction: 0.98, level: .danger, label: "98")) },
+            { RingIcon.systemImage(memory: .empty, disk: .empty) },
+        ]
         let scale: CGFloat = 4
         let pad: CGFloat = 6
-        let icon = NSSize(width: RingIcon.ringSize * 2 + RingIcon.gap, height: RingIcon.ringSize)
+        let icon = NSSize(width: (RingIcon.symbolWidth + RingIcon.ringSize) * 2 + RingIcon.gap,
+                          height: RingIcon.ringSize)
         let columnWidth = icon.width + pad * 2
         let width = columnWidth * 2
-        let height = (icon.height + pad) * CGFloat(rows.count) + pad
+        let height = (icon.height + pad) * CGFloat(images.count) + pad
         guard let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil, pixelsWide: Int(width * scale), pixelsHigh: Int(height * scale),
             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
@@ -30,9 +38,9 @@ enum Preview {
                 let x = CGFloat(column) * columnWidth
                 NSColor.windowBackgroundColor.setFill()
                 NSRect(x: x, y: 0, width: columnWidth, height: height).fill()
-                for (index, row) in rows.enumerated() {
+                for (index, makeImage) in images.enumerated() {
                     let y = height - CGFloat(index + 1) * (icon.height + pad)
-                    RingIcon.image(row.0, row.1).draw(
+                    makeImage().draw(
                         at: NSPoint(x: x + pad, y: y), from: .zero, operation: .sourceOver, fraction: 1)
                 }
             }

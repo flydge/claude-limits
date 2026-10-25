@@ -1,11 +1,13 @@
 import AppKit
 
 // Menu bar item: two rings from ~/.claude/limits.json, details in the menu.
+// Beside it, SystemItem shows memory and disk.
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
     private var timer: Timer?
+    private var system: SystemItem?
     private let lang = Lang.resolve(override: ProcessInfo.processInfo.environment["CLAUDE_LIMITS_LANG"],
                                     preferred: Locale.preferredLanguages)
     private let fileURL: URL = {
@@ -25,6 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         DistributedNotificationCenter.default().addObserver(
             self, selector: #selector(tick), name: Notification.Name("AppleInterfaceThemeChangedNotification"),
             object: nil)
+        system = SystemItem(lang: lang)
+        system?.start()
     }
 
     func menuWillOpen(_ menu: NSMenu) {
