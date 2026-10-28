@@ -3,7 +3,10 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import type { Attention } from '../types'
 import {
-  chipsFor,
+  ATTENTION_TEXT,
+  bandSessions,
+  markdownText,
+  minutesWaiting,
   nextState,
   parseAttention,
   shortTitle,
@@ -103,16 +106,33 @@ test('reads the gathered list and keeps only links into the Claude app', () => {
 const five: Attention = parseAttention(JSON.stringify({ updated_at: t0 / 1000, sessions: [1, 2, 3, 4, 5].map(n => entry(n)) }), t0)!
 
 test('the band leaves out its own session and counts what does not fit', () => {
-  const { shown, hidden } = chipsFor(five, 'cli-2')
+  const { shown, hidden, isBlocking } = bandSessions(five, 'cli-2')
   expect(shown.map(s => s.cliId)).toEqual(['cli-1', 'cli-3', 'cli-4'])
   expect(hidden).toBe(1)
-  expect(chipsFor(null, 'cli-1')).toEqual({ shown: [], hidden: 0 })
+  expect(isBlocking).toBe(true)
+  expect(bandSessions(null, 'cli-1')).toEqual({ shown: [], hidden: 0, isBlocking: false })
+})
+
+test('heading, minutes and the rest in both languages', () => {
+  expect([1, 2, 5, 11, 21].map(ATTENTION_TEXT.ru.header)).toEqual(
+    ['1 ждёт ответа', '2 ждут ответа', '5 ждут ответа', '11 ждут ответа', '21 ждёт ответа'])
+  expect(ATTENTION_TEXT.en.header(3)).toBe('3 waiting for you')
+  expect(ATTENTION_TEXT.ru.more(2)).toBe('ещё 2')
+  expect(ATTENTION_TEXT.en.minutes(4)).toBe('4 min')
+  expect(minutesWaiting(t0, t0 + 119_000)).toBe(1)
+  expect(minutesWaiting(t0, t0 - 5000)).toBe(0)
+})
+
+test('a title stays one link in markdown', () => {
+  expect(markdownText('Fix [bug] (urgent) *now*')).toBe('Fix \\[bug\\] \\(urgent\\) \\*now\\*')
+  expect(markdownText('Зона: анимации бойцов')).toBe('Зона: анимации бойцов')
 })
 
 test('titles', () => {
   expect(shortTitle('  ', 'ru')).toBe('Сессия без названия')
   expect(shortTitle('', 'en')).toBe('Untitled session')
-  expect(shortTitle('База персонажей из конструктора Space Marine 2', 'ru')).toBe('База персонажей из конструк…')
+  expect(shortTitle('База персонажей из конструктора Space Marine 2', 'ru')).toBe('База персонажей из конструктора Space Marine 2')
+  expect(shortTitle('x'.repeat(70), 'en')).toBe('x'.repeat(59) + '…')
   expect(shortTitle('Пепельная дорога', 'ru')).toBe('Пепельная дорога')
 })
 
@@ -146,7 +166,7 @@ test('a question reaches the state file once', async ($, on) => {
   expect(writes.map(w => JSON.parse(w.text).state)).toEqual(['question', 'working'])
 })
 
-test('the band shows other waiting sessions and opens one on press', async ($, on) => {
+test('the band lists the other waiting sessions as links that open them', async ($, on) => {
   const clock = mock.clock(on)
   const runs: (readonly string[])[] = []
   on('session.id', () => ({ value: 'cli-2' }))
@@ -167,12 +187,14 @@ test('the band shows other waiting sessions and opens one on press', async ($, o
       scroll: { offset: 0, bodyRows: 19 }, view: {},
     },
   })
-  expect(await ui.find({ type: 'Button', key: 'attention-open-local_1' })).toBeDefined()
-  expect(await ui.find({ type: 'Button', key: 'attention-open-local_4' })).toBeDefined()
-  expect(await ui.find({ type: 'Button', key: 'attention-open-local_2' })).toBeUndefined()
-  expect(await ui.find({ type: 'Button', key: 'attention-open-local_5' })).toBeUndefined()
-  expect((await ui.find({ type: 'Text', text: /^\+1$/ }))?.text).toBe('+1')
-  await ui.press({ key: 'attention-open-local_3' })
-  expect(runs).toContainEqual(['open', link(3)])
+  expect((await ui.find({ type: 'Text', text: /waiting/ }))?.text).toBe('4 waiting for you')
+  const rows = await ui.findAll({ type: 'Markdown' })
+  expect(rows.map(r => r.key)).toEqual(['attention-open-local_1', 'attention-open-local_3', 'attention-open-local_4'])
+  expect((rows[1]?.props as { text: string }).text).toBe('[Session 3](https://limit-rings.invalid/open/local_3)')
+  await ui.press({ key: 'attention-open-local_3', link: { href: 'https://limit-rings.invalid/open/local_3' } })
+  expect(runs).toEqual([['open', link(3)]])
+  expect(await ui.find({ type: 'Text', text: /done|permission/ })).toBeUndefined()
+  expect((await ui.find({ type: 'Text', text: /^1 more$/ }))?.text).toBe('1 more')
+  expect(await ui.findAll({ type: 'Button' })).toHaveLength(0)
   await ui.unmount()
 })

@@ -6,10 +6,14 @@ import {
   ATTENTION_POLL_MS,
   ATTENTION_STALE_MS,
   ATTENTION_TEXT,
-  chipsFor,
+  bandSessions,
+  bellSvg,
   dotSvg,
   isOpenableLink,
+  markdownText,
+  minutesWaiting,
   nextState,
+  openHref,
   parseAttention,
   sameSessions,
   shortTitle,
@@ -19,6 +23,7 @@ import {
   type Tracker,
 } from './attention'
 import {
+  COLORS,
   FIVE_HOUR_MS,
   SEVEN_DAY_MS,
   TEXT,
@@ -47,6 +52,12 @@ const systemOpen = atom({ plugin: 'limit-rings', key: 'systemOpen' } as const, f
 const attention = atom({ plugin: 'limit-rings', key: 'attention' } as const, null as Attention | null)
 
 const APP_BIN = 'Applications/ClaudeLimits.app/Contents/MacOS/ClaudeLimits'
+// The memory details link: answered by the mod, never opened.
+const DETAILS_HREF = 'https://limit-rings.invalid/details'
+
+function openSession($: Engine, link: string) {
+  if (isOpenableLink(link)) void $.process.run(['open', link], { timeoutMs: 5000 }).catch(() => undefined)
+}
 
 type Engine = EngineInterface
 
@@ -206,33 +217,41 @@ export const register: Register = on => {
     const reading = await read($, limits)
     const sys = await read($, system)
     const isOpen = await read($, systemOpen)
-    const waiting = chipsFor(await read($, attention), await $.session.id().catch(() => ''))
+    const waiting = bandSessions(await read($, attention), await $.session.id().catch(() => ''))
     await read($, minute)
     if (!reading && !sys && waiting.shown.length === 0) return next(e)
 
     const now = await $.clock.now()
-    const { Box, Button, Svg, Text } = $.ui.resolve(e)
+    const { Box, Markdown, Svg, Text } = $.ui.resolve(e)
 
+    // A heading with the count, then one row per session: a dot whose color is its state,
+    // the title as a link that opens it, and how long it has waited. Links, not Buttons, as the
+    // desktop draws a Button as a grey native button; and https ones it answers itself, as it
+    // draws any other link as plain text.
     const rows = []
     if (waiting.shown.length > 0) {
       const a = ATTENTION_TEXT[lang]
-      const chips = waiting.shown.map(s => {
-        const open = () => {
-          if (isOpenableLink(s.link)) void $.process.run(['open', s.link], { timeoutMs: 5000 }).catch(() => undefined)
-        }
-        return (
-          <Box key={`attention-${s.id}`} flexDirection="row" alignItems="center">
-            <Svg source={dotSvg(stateColor(s.state))} alt={a[s.state]} width={12} height={12} />
-            <Button key={`attention-open-${s.id}`} onPress={open}>
-              {' '}{shortTitle(s.title, lang)} <Text dimColor>· {a[s.state]}</Text>
-            </Button>
+      const total = waiting.shown.length + waiting.hidden
+      const list = waiting.shown.map(s => (
+        <Box key={`attention-${s.id}`} flexDirection="row" alignItems="center" justifyContent="space-between" width="100%">
+          <Box flexDirection="row" alignItems="center" columnGap="sm">
+            <Svg source={dotSvg(stateColor(s.state))} alt={a[s.state]} width={10} height={10} />
+            <Markdown key={`attention-open-${s.id}`} text={`[${markdownText(shortTitle(s.title, lang))}](${openHref(s)})`}
+              onLinkPress={() => openSession($, s.link)} pressableLinks={[openHref(s)]} />
           </Box>
-        )
-      })
-      if (waiting.hidden > 0) chips.push(<Text key="attention-more" size="footnote" dimColor>+{waiting.hidden}</Text>)
+          <Text size="footnote" dimColor>{a.minutes(minutesWaiting(s.since, now))}</Text>
+        </Box>
+      ))
+      if (waiting.hidden > 0) list.push(<Text key="attention-more" size="footnote" dimColor>{a.more(waiting.hidden)}</Text>)
       rows.push(
-        <Box key="attention" flexDirection="row" alignItems="center" columnGap="lg">
-          {chips}
+        <Box key="attention" flexDirection="column" rowGap="xs">
+          <Box flexDirection="row" alignItems="center" columnGap="sm">
+            <Svg source={bellSvg(waiting.isBlocking ? COLORS.warn : COLORS.ok)} alt={a.header(total)} width={14} height={14} />
+            <Text size="footnote" weight="medium">{a.header(total)}</Text>
+          </Box>
+          <Box flexDirection="column" rowGap="xs" paddingLeft="lg">
+            {list}
+          </Box>
         </Box>,
       )
     }
@@ -272,7 +291,7 @@ export const register: Register = on => {
           <Box key="memory" flexDirection="row" alignItems="center">
             <Svg source={usedRingSvg(sys.memory.used, sys.memory.total, sys.memory.level, stale)}
               alt={texts.memory} width={20} height={20} />
-            <Button key="memory-toggle" onPress={toggle}><Text size="footnote"> {texts.memory}</Text></Button>
+            <Text size="footnote"> {texts.memory}</Text>
           </Box>,
         )
       }
@@ -281,11 +300,15 @@ export const register: Register = on => {
           <Box key="disk" flexDirection="row" alignItems="center">
             <Svg source={usedRingSvg(sys.disk.total - Math.min(sys.disk.available, sys.disk.total), sys.disk.total,
               sys.disk.level, stale)} alt={texts.disk} width={20} height={20} />
-            <Button key="disk-toggle" onPress={toggle}><Text size="footnote"> {texts.disk}</Text></Button>
+            <Text size="footnote"> {texts.disk}</Text>
           </Box>,
         )
       }
-      parts.push(<Button key="system-details" label={isOpen ? t.less : t.more} onPress={toggle} />)
+      // A link rather than a Button: the desktop draws a Button as a grey native button.
+      parts.push(
+        <Markdown key="system-details" text={`[${isOpen ? t.less : t.more}](${DETAILS_HREF})`}
+          onLinkPress={toggle} pressableLinks={[DETAILS_HREF]} />,
+      )
       rows.push(
         <Box key="system" flexDirection="row" alignItems="center" columnGap="lg">
           {parts}

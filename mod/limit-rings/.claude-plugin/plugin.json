@@ -1,6 +1,6 @@
 {
   "name": "limit-rings",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "5-hour and weekly Claude limits, memory and disk as rings above the prompt in the desktop app, and buttons for sessions waiting on you",
   "author": { "name": "flydge" },
   "types": "./types/index.d.ts"
