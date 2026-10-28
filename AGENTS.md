@@ -9,12 +9,15 @@ few lines at the end.
 - `~/.claude/statusline-limits.sh` and a `statusLine` entry in `~/.claude/settings.json`:
   5-hour and weekly limit bars in the terminal Claude Code status line.
 - `~/Applications/ClaudeLimits.app` with a user LaunchAgent `com.flydge.claude-limits`:
-  two rings in the macOS menu bar, started at login, and beside them memory and disk rings.
+  two rings in the macOS menu bar, started at login, beside them memory and disk rings, and a bell
+  with the number of Claude app sessions waiting on the user, shown only while one waits.
 - The Claude Code plugin `limit-rings@flydge` from the marketplace `flydge/claude-limits`:
-  rings above the prompt in the Claude desktop app's Code tab.
+  rings above the prompt in the Claude desktop app's Code tab, and buttons that open the other
+  sessions waiting on the user.
 
 Nothing makes network calls or reads credentials; all three read the limits Claude Code
-itself reports. They need a Claude Pro or Max subscription to show numbers.
+itself reports, and the bell reads the titles the Claude app keeps for its sessions. The limits
+need a Claude Pro or Max subscription to show numbers.
 
 ## Steps
 
@@ -83,6 +86,8 @@ Claude Code (terminal) --stdin JSON--> statusline/statusline-limits.sh --> statu
 Claude app (Code tab)  --$.session---> mod/limit-rings               --> rings above the prompt
                 both write ~/.claude/limits.json --> menubar/ (ClaudeLimits.app) --> menu bar rings
 ClaudeLimits.app --every 5 s--> ~/.claude/system.json --> mod/limit-rings --> memory and disk row
+mod/limit-rings (each session) --> ~/.claude/attention/<id>.json --> ClaudeLimits.app --> bell
+ClaudeLimits.app --every 2 s--> ~/.claude/attention.json --> mod/limit-rings --> waiting-session buttons
 ```
 
 - The memory and disk item (`SystemCore.swift` logic, `SystemProbe.swift` kernel reads, `SystemItem.swift`
@@ -95,6 +100,22 @@ ClaudeLimits.app --every 5 s--> ~/.claude/system.json --> mod/limit-rings --> me
   (`hooks/system.ts`) only reads that file, so open sessions spawn nothing, and runs
   `ClaudeLimits --system-json` itself only when the file is missing or older than 30 s, in desktop
   sessions only. The levels are computed in Swift alone; the mod draws what the file says.
+- The bell (`AttentionCore.swift` logic, `AttentionItem.swift` menu and file reads; spec in
+  `docs/specs/001-attention-bell.md`). The mod (`hooks/attention.ts`) writes its session's state to
+  `~/.claude/attention/<session id>.json` (`session_id`, `state`: `working|permission|question|done|ended`,
+  `since` epoch s), only when it changes: `classic.PermissionRequest` is `permission` (`question` for
+  `AskUserQuestion` and `ExitPlanMode`), the waiting tool call ending is `working`, a main-loop turn's end
+  is `done` unless aborted, `session.end` is `ended` (the app deletes that file: the mod API cannot). The app
+  reads those and, read-only, the Claude app's session files (`~/Library/Application Support/Claude/
+  claude-code-sessions/*/*/local_*.json`: `sessionId`, `cliSessionId`, `title`, `isArchived`,
+  `lastFocusedAt`), keeps waiting sessions the app knows and has not archived (terminal sessions drop
+  out), hides a `done` opened after it finished or on screen in a frontmost Claude app, puts blocking
+  ones first, the longest waiting first, and every 2 s writes `~/.claude/attention.json` (`attentionJSON`:
+  `updated_at`, `sessions` with `id`, `cli_id`, `title`, `state`, `since`, `link`). A link is
+  `claude://claude.ai/epitaxy/<local_ id>`; nothing else is opened. One notification per waiting spell
+  after 5 min (`reminderAfter`), none for a spell that passed it before the app started. The band draws
+  the other sessions, at most 3 and `+N`, and runs `ClaudeLimits --attention-json` itself only when the
+  file is older than 10 s, in desktop sessions, at most every 10 s. `ClaudeLimits --attention` prints the menu.
 - Data: only what Claude Code reports (`rate_limits.five_hour|seven_day` on the status
   line's stdin; `$.session.usage()` and `session.measure` in the mod). Never add network
   calls, credentials, cookies or the OAuth token.
@@ -107,8 +128,9 @@ ClaudeLimits.app --every 5 s--> ~/.claude/system.json --> mod/limit-rings --> me
   window and only when the current pace runs out before the reset.
 - Language: `CLAUDE_LIMITS_LANG`, else the first macOS system language (`defaults read -g
   AppleLanguages`); `ru…` is Russian, anything else English. Every user-facing string exists in
-  both: the status line script, `Strings` in `LimitsCore.swift`, `SystemStrings` in `SystemCore.swift`, `TEXT` in the mod's `limits.ts`
-  and `SYSTEM_TEXT` in its `system.ts`.
+  both: the status line script, `Strings` in `LimitsCore.swift`, `SystemStrings` in `SystemCore.swift`, `AttentionStrings` in
+  `AttentionCore.swift`, `TEXT` in the mod's `limits.ts`, `SYSTEM_TEXT` in its `system.ts` and `ATTENTION_TEXT`
+  in its `attention.ts`.
   `--lang` keeps the choice in `settings.json` `env` and in the launch agent.
 - Plugin names starting with `claude-` are reserved, hence `limit-rings`.
 - Check icon changes without a screenshot:

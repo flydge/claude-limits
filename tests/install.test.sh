@@ -98,12 +98,16 @@ expect "plist change reloads the agent" yes "$([ -f "$STATE/agent" ] && echo yes
 inst --lang auto >/dev/null
 
 # Uninstall removes what install added, and only that.
+mkdir -p "$HOME_DIR/.claude/attention" && echo "{}" > "$HOME_DIR/.claude/attention/cli-1.json"
+echo "{}" > "$HOME_DIR/.claude/attention.json"
 out=$(inst uninstall); code=$?
 expect "uninstall exits 0" 0 "$code"
 expect "statusLine removed" null "$(settings | jq -c .statusLine)"
 expect "other settings survive uninstall" dark "$(settings | jq -r .theme)"
 expect "script removed" no "$([ -e "$HOME_DIR/.claude/statusline-limits.sh" ] && echo yes || echo no)"
 expect "app removed" no "$([ -e "$HOME_DIR/Applications/ClaudeLimits.app" ] && echo yes || echo no)"
+expect "attention states removed" no "$([ -e "$HOME_DIR/.claude/attention" ] && echo yes || echo no)"
+expect "attention list removed" no "$([ -e "$HOME_DIR/.claude/attention.json" ] && echo yes || echo no)"
 expect "agent unloaded" no "$([ -f "$STATE/agent" ] && echo yes || echo no)"
 expect "mod uninstalled" 1 "$(count 'plugin uninstall limit-rings@flydge')"
 expect "check fails after uninstall" 1 "$(inst check >/dev/null; echo $?)"

@@ -327,6 +327,7 @@ do_uninstall() {
   launchctl bootout "$domain/$LABEL" >/dev/null 2>&1 && wait_unloaded "$domain/$LABEL"
   rm -f "$PLIST" && ok "menubar: launch agent removed"
   rm -rf "$APP_DST" && ok "menubar: app removed"
+  rm -rf "$CLAUDE_DIR/attention" "$CLAUDE_DIR/attention.json" && ok "menubar: attention files removed"
   rm -f "$SCRIPT_DST" "$CLAUDE_DIR/limits.json" && ok "statusline: script and limits.json removed"
   if [ -f "$SETTINGS" ] && has jq && { is_ours < "$SETTINGS" || [ -n "$(pinned_lang)" ]; }; then
     local cleaned

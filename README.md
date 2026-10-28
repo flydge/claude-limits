@@ -49,6 +49,13 @@ The menu bar app also writes each reading to `~/.claude/system.json` every 5 sec
 Claude app draws it as a second row under the limit rings: memory used and swap, free disk space.
 Press it for the details and the apps using the most memory.
 
+**Sessions waiting on you.** A bell with a number appears in the menu bar while a session in the
+Claude app waits on you: for permission, with a question, or with a finished task you have not
+opened yet. Its menu lists them, and picking one opens it in the Claude app. Above the prompt in
+the Claude app, the other waiting sessions show as buttons that do the same. A session that waits
+five minutes brings one notification. Sessions in the terminal are not listed.
+`ClaudeLimits --attention` prints the same list.
+
 Green below 60 %, orange below 85 %, red above. When the current pace runs out before the
 reset, a forecast appears. Text follows the macOS language, English or Russian (the menu above
 is Russian); `install.sh --lang en|ru|auto` pins it.
