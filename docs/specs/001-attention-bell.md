@@ -27,7 +27,7 @@
 **Новый файл `~/.claude/attention/<cliSessionId>.json`** (пишется атомарно):
 
 ```json
-{"session_id": "<cliSessionId>", "state": "working|permission|question|done|ended", "since": <epoch s>}
+{"session_id": "<cliSessionId>", "state": "working|permission|question|decision|done|ended", "since": <epoch s>}
 ```
 
 Переходы. Начало и конец хода учитываются только в основной переписке (ход субагента
@@ -35,11 +35,13 @@
 
 | событие | новое состояние |
 |---|---|
-| `prompt.submit`, `turn.start` | `working` |
+| `prompt.submit`, `turn.start` | `working`; метка «ждёт решения» снимается |
 | `classic.PermissionRequest` (запрос разрешения у человека) | `permission`; для `AskUserQuestion` и `ExitPlanMode` — `question` |
 | `tool.call` для `AskUserQuestion` или `ExitPlanMode`, до `next` | `question` |
+| `tool.call` для `mcp__ccd_session__start_session` с `initiation: "offer"` (вызов ждёт ответа человека), до `next` | `question` |
+| `tool.call` для `mcp__ccd_turn__wrap_up` с непустым `ask`, непустыми `actions` или `blocked: true`; `tool.call` для `mcp__ccd_session__start_session` с `initiation: "own_initiative"` (карточка задачи) | состояние не меняется, ход помечается «ждёт решения» |
 | завершение `tool.call` (инструмент отработал или отказ), если было `permission` или `question` | `working` |
-| `turn.complete` с причиной `answer`, `refusal` или `error` | `done` |
+| `turn.complete` с причиной `answer`, `refusal` или `error` | `decision`, если ход помечен «ждёт решения», иначе `done`; метка снимается |
 | `turn.complete` с причиной `aborted` (человек сам прервал) | `working`, то есть не показывать |
 | `session.end` | `ended`: в API мода нет удаления файлов, такой файл удаляет приложение в строке меню |
 
@@ -50,19 +52,19 @@
 
 ```json
 {"updated_at": <epoch s>, "sessions": [
-  {"id": "local_…", "cli_id": "…", "title": "…", "state": "permission|question|done",
+  {"id": "local_…", "cli_id": "…", "title": "…", "state": "permission|question|decision|done",
    "since": <epoch s>, "link": "claude://claude.ai/epitaxy/local_…"}
 ]}
 ```
 
 Правила списка (Swift, `AttentionCore.swift`):
-- Сессия попадает в список, если её состояние `permission`, `question` или `done`, у неё есть
+- Сессия попадает в список, если её состояние `permission`, `question`, `decision` или `done`, у неё есть
   файл в приложении Claude (сопоставление по `cliSessionId`) и `isArchived` у неё не `true`.
   Сессии терминала файла в приложении не имеют, поэтому в список не попадают.
 - `done` считается просмотренным и пропадает, если `lastFocusedAt` позже `since`, или если эта
   сессия открыта прямо сейчас (у неё самый поздний `lastFocusedAt`), а Claude — активное
   приложение (`frontmostApplication` = `com.anthropic.claudefordesktop`).
-- Порядок: сначала `permission` и `question`, потом `done`; внутри группы — кто ждёт дольше,
+- Порядок: сначала оранжевые — `permission`, `question` и `decision`, потом `done`; внутри группы — кто ждёт дольше,
   тот выше.
 - Файлы приложения перечитываются только для сессий из списка; полный обход папки — только
   когда встретился незнакомый `cliSessionId`.
@@ -95,13 +97,14 @@ bash menubar/build.sh && build/ClaudeLimits.app/Contents/MacOS/ClaudeLimits --at
 | 1 | Переходы состояний мода совпадают с таблицей раздела 2, включая `aborted` и игнорирование субагентов | `claude plugin test mod/limit-rings`: новые тесты `attention.test.ts`, по одному на строку таблицы |
 | 2 | Сборка списка: сопоставление с файлами приложения, отсев архивных сессий и сессий терминала, правило «просмотрено», порядок | `bash menubar/test.sh`: новые тесты на `AttentionCore` с фиктивными файлами и подставным временем |
 | 3 | Напоминание: одно на эпизод ожидания, ровно через 300 с от `since`; повтор не приходит; после смены состояния новый эпизод — новое напоминание | `bash menubar/test.sh`: тесты на функцию «кому пора напомнить» с подставным временем |
-| 4 | Колокольчик скрыт, когда список пуст, и показывает число, когда список не пуст; оранжевый, если есть `permission` или `question`, иначе зелёный | тест на функцию состояния значка в `menubar/test.sh` и `--preview` значка |
+| 4 | Колокольчик скрыт, когда список пуст, и показывает число, когда список не пуст; оранжевый, если есть `permission`, `question` или `decision`, иначе зелёный | тест на функцию состояния значка в `menubar/test.sh` и `--preview` значка |
 | 5 | Вживую: запрос разрешения в сессии X за ≤ 3 с даёт `state: permission` в её файле и строку X в `ClaudeLimits --attention` | шаги 1–2 сценария, вывод `cat ~/.claude/attention/<id>.json` и `--attention` |
 | 6 | Вживую: вопрос Claude (`AskUserQuestion`) в X даёт `question`, окончание хода — `done` | то же: файл и `--attention` |
 | 7 | Вживую: нажатие на название над полем ввода в Y и на строку меню открывает X | после нажатия `lastFocusedAt` у X в файле приложения обновился, а у Y — нет |
 | 8 | Своя сессия не показывается в собственной полосе. Над полем ввода всегда раскрытый список: заголовок «N ждут ответа», не больше 3 строк (точка цвета состояния — оранжевая или зелёная, название ссылкой, минуты ожидания), остальные — «ещё N». Слов состояния и системных кнопок (`Button`) в полосе нет | `attention.test.tsx`: отрисовка полосы с 5 ожидающими и своей сессией среди них |
 | 9 | Вся существующая работа не сломана | все четыре набора тестов из AGENTS.md проходят: `bash statusline/test/run.sh && bash menubar/test.sh && claude plugin test mod/limit-rings && bash tests/install.test.sh` |
 | 10 | `install.sh uninstall` удаляет `~/.claude/attention/` и `~/.claude/attention.json`; повторный `install.sh` ничего не ломает | `tests/install.test.sh`: новые проверки |
+| 12 | Ход, закончившийся вопросом или кнопками в блоке «следующий шаг», `blocked: true` или карточкой новой задачи, — это `decision` (оранжевый, в меню «ждёт решения»); блок без вопроса — `done`; предложение сессии с `initiation: "offer"` — `question`, пока ждёт ответа | `attention.test.tsx`: функция, распознающая решение по вызову, и переходы с меткой; вживую — файл состояния этой сессии после хода с вопросом в блоке |
 | 11 | Все новые строки есть на русском и английском | тесты строк в обоих наборах: для каждого ключа есть оба языка |
 
 ## 5. Вне объёма
