@@ -27,7 +27,7 @@
 **Новый файл `~/.claude/attention/<cliSessionId>.json`** (пишется атомарно):
 
 ```json
-{"session_id": "<cliSessionId>", "state": "working|permission|question|done", "since": <epoch s>}
+{"session_id": "<cliSessionId>", "state": "working|permission|question|done|ended", "since": <epoch s>}
 ```
 
 Переходы, только для основной переписки (ходы субагентов не учитываются):
@@ -35,12 +35,12 @@
 | событие | новое состояние |
 |---|---|
 | `prompt.submit`, `turn.start` | `working` |
-| `classic.PermissionRequest` (запрос разрешения у человека) | `permission` |
+| `classic.PermissionRequest` (запрос разрешения у человека) | `permission`; для `AskUserQuestion` и `ExitPlanMode` — `question` |
 | `tool.call` для `AskUserQuestion` или `ExitPlanMode`, до `next` | `question` |
 | завершение `tool.call` (инструмент отработал или отказ), если было `permission` или `question` | `working` |
 | `turn.complete` с причиной `answer`, `refusal` или `error` | `done` |
 | `turn.complete` с причиной `aborted` (человек сам прервал) | `working`, то есть не показывать |
-| `session.end` | файл удаляется |
+| `session.end` | `ended`: в API мода нет удаления файлов, такой файл удаляет приложение в строке меню |
 
 `since` меняется только при смене состояния.
 
@@ -139,10 +139,11 @@ bash menubar/build.sh && build/ClaudeLimits.app/Contents/MacOS/ClaudeLimits --at
 
 ## 8. Риски и деградация
 
-- **`classic.PermissionRequest` не приходит в сессиях приложения.** Тогда запрос ловится по
-  `tool.check`: вердикт `ask` в режимах `default`, `acceptEdits`, `plan`; в режиме `auto` такие
-  запросы не отмечаются, потому что их решает классификатор. Если не работает ни один способ —
-  стоп и вопрос пользователю.
+- **`classic.PermissionRequest` в сессиях приложения приходит** (проверено зондом 28.10:
+  Bash в режиме `default`, `AskUserQuestion`). Он приходит и тогда, когда приложение само
+  одобряет вызов без человека; такое `permission` длится доли секунды и сменяется `working` по
+  окончании `tool.call`. `tool.check` с `ask` не годится: в режимах `auto` и `bypassPermissions`
+  он тоже `ask`, а решает не человек.
 - **Формат файлов приложения Claude изменится.** Файлы без нужных полей пропускаются, и список
   пустеет. Приложение и мод не падают, кольца лимитов и памяти работают как раньше.
 - **Приложение в строке меню не запущено.** Мод, как с `system.json`, сам вызывает
