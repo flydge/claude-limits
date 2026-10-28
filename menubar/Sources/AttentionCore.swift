@@ -6,9 +6,10 @@ import Foundation
 // ~/.claude/attention.json for the desktop mod. No AppKit or system calls here.
 
 enum AttentionState: String, Equatable {
-    case working, permission, question, done, ended
+    case working, permission, question, decision, done, ended
 
-    var isBlocking: Bool { self == .permission || self == .question }
+    /// Orange, at the head of the list: the person's answer or decision is wanted.
+    var isBlocking: Bool { self == .permission || self == .question || self == .decision }
 }
 
 /// `~/.claude/attention/<cli id>.json`, as the mod writes it.
@@ -61,8 +62,8 @@ func parseAppSession(_ data: Data) -> AppSession? {
                       lastFocusedAt: (object["lastFocusedAt"] as? Double ?? 0) / 1000)
 }
 
-/// The sessions to show. A session shows while it waits for permission, an answer or a look
-/// at a finished turn, and only as a live session of the Claude app: one the app does not
+/// The sessions to show. A session shows while it waits for permission, an answer, a decision
+/// or a look at a finished turn, and only as a live session of the Claude app: one the app does not
 /// know (a terminal session) or keeps archived is left out. A finished turn counts as seen
 /// once the session was opened after it, or while it is the one on screen in a frontmost
 /// Claude app. Blocking sessions first, then finished ones; the longest waiting first.
@@ -109,17 +110,19 @@ func remindersDue(_ sessions: [WaitingSession], reminded: Set<String>, startedAt
 }
 
 struct AttentionStrings {
-    let permission, question, done, minutes, untitled, tooltip, reminderTitle: String
+    let permission, question, decision, done, minutes, untitled, tooltip, reminderTitle: String
 
     static func of(_ lang: Lang) -> AttentionStrings {
         switch lang {
         case .ru:
-            return AttentionStrings(permission: "нужно разрешение", question: "вопрос", done: "готово",
+            return AttentionStrings(permission: "нужно разрешение", question: "вопрос", decision: "ждёт решения",
+                                    done: "готово",
                                     minutes: "мин", untitled: "Сессия без названия",
                                     tooltip: "Сессии Claude, которые ждут ответа",
                                     reminderTitle: "Claude ждёт ответа")
         case .en:
-            return AttentionStrings(permission: "needs permission", question: "has a question", done: "done",
+            return AttentionStrings(permission: "needs permission", question: "has a question",
+                                    decision: "needs your decision", done: "done",
                                     minutes: "min", untitled: "Untitled session",
                                     tooltip: "Claude sessions waiting for you",
                                     reminderTitle: "Claude is waiting for you")
@@ -130,6 +133,7 @@ struct AttentionStrings {
         switch state {
         case .permission: return permission
         case .question: return question
+        case .decision: return decision
         default: return done
         }
     }

@@ -7,7 +7,7 @@
       "name": "limit-rings",
       "source": "./mod/limit-rings",
       "description": "5-hour and weekly Claude limits, memory and disk as rings above the prompt in the desktop app, and buttons for sessions waiting on you",
-      "version": "0.4.1"
+      "version": "0.4.2"
     }
   ]
 }

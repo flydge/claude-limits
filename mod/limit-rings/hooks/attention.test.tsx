@@ -4,6 +4,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Attention } from '../types'
 import {
   ATTENTION_TEXT,
+  asksOf,
   bandSessions,
   markdownText,
   minutesWaiting,
@@ -58,6 +59,33 @@ test('a main-loop turn that ends is done unless the person stopped it', () => {
   expect(step(working, { kind: 'turn.complete', reason: 'answer', agentId: 'a1' })).toBe(working)
 })
 
+test('what a call asks of the person', () => {
+  expect(asksOf('AskUserQuestion', {})).toBe('answer')
+  expect(asksOf('mcp__ccd_session__start_session', { initiation: 'offer', title: 'x' })).toBe('answer')
+  expect(asksOf('mcp__ccd_session__start_session', { initiation: 'own_initiative' })).toBe('decision')
+  expect(asksOf('mcp__ccd_session__start_session', { initiation: 'user_asked' })).toBe(undefined)
+  expect(asksOf('mcp__ccd_turn__wrap_up', { recap: 'r', ask: 'Принять спеку?' })).toBe('decision')
+  expect(asksOf('mcp__ccd_turn__wrap_up', { recap: 'r', actions: [{ label: 'Да' }] })).toBe('decision')
+  expect(asksOf('mcp__ccd_turn__wrap_up', { recap: 'r', blocked: true })).toBe('decision')
+  expect(asksOf('mcp__ccd_turn__wrap_up', { recap: 'r', ask: '  ', actions: [] })).toBe(undefined)
+  expect(asksOf('mcp__ccd_turn__wrap_up', { recap: 'r' })).toBe(undefined)
+  expect(asksOf('Bash', { command: 'ls' })).toBe(undefined)
+})
+
+test('a turn that put a choice to the person ends waiting for a decision', () => {
+  const marked = step(working, { kind: 'tool.start', tool: 'mcp__ccd_turn__wrap_up', asks: 'decision' })
+  expect(marked).toEqual({ state: 'working', since: t0, awaitsDecision: true })
+  expect(step(marked, { kind: 'tool.end', tool: 'mcp__ccd_turn__wrap_up' })).toBe(marked)
+  expect(step(marked, { kind: 'turn.complete', reason: 'answer' })).toEqual({ state: 'decision', since: t0 + 5000 })
+  expect(step(marked, { kind: 'turn.complete', reason: 'answer', agentId: 'a1' })).toBe(marked)
+  expect(step(marked, { kind: 'turn.complete', reason: 'aborted' })).toEqual({ state: 'working', since: t0 })
+  expect(step(marked, { kind: 'prompt.submit' })).toEqual({ state: 'working', since: t0 })
+  expect(step(working, { kind: 'tool.start', tool: 'mcp__ccd_turn__wrap_up' })).toBe(working)
+  const offered = step(working, { kind: 'tool.start', tool: 'mcp__ccd_session__start_session', asks: 'answer' })
+  expect(offered.state).toBe('question')
+  expect(step(offered, { kind: 'tool.end', tool: 'mcp__ccd_session__start_session' }).state).toBe('working')
+})
+
 test('a session that ends is ended', () => {
   expect(step(working, { kind: 'session.end' }).state).toBe('ended')
 })
@@ -87,6 +115,7 @@ test('reads the gathered list and keeps only links into the Claude app', () => {
     sessions: [
       entry(1),
       entry(2, 'done'),
+      entry(6, 'decision'),
       { ...entry(3), link: 'file:///Applications/Calculator.app' },
       { ...entry(4), state: 'working' },
       { ...entry(5), title: 7 },
@@ -94,7 +123,7 @@ test('reads the gathered list and keeps only links into the Claude app', () => {
   })
   const a = parseAttention(text, t0 + 1000)
   expect(a?.measuredAt).toBe(t0)
-  expect(a?.sessions.map(s => s.cliId)).toEqual(['cli-1', 'cli-2'])
+  expect(a?.sessions.map(s => s.cliId)).toEqual(['cli-1', 'cli-2', 'cli-6'])
   expect(a?.sessions[0]).toEqual({
     id: 'local_1', cliId: 'cli-1', title: 'Session 1', state: 'permission', since: t0 - 1000, link: link(1),
   })
@@ -156,6 +185,13 @@ test('a permission prompt and its answer reach the state file', async ($, on) =>
   await $.tool.call({ tool: 'Bash', command: 'ls' })
   expect(writes.map(w => w.path)).toEqual(['/Users/t/.claude/attention/cli-own.json', '/Users/t/.claude/attention/cli-own.json'])
   expect(writes.map(w => JSON.parse(w.text).state)).toEqual(['permission', 'working'])
+})
+
+test('an offered session waits for an answer while its call runs', async ($, on) => {
+  const writes: { path: string; text: string }[] = []
+  engine(on, writes)
+  await $.tool.call({ tool: 'mcp__ccd_session__start_session', initiation: 'offer', title: 'Fix the bell' })
+  expect(writes.map(w => JSON.parse(w.text).state)).toEqual(['question', 'working'])
 })
 
 test('a question reaches the state file once', async ($, on) => {

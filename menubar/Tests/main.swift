@@ -215,5 +215,16 @@ check("attention json", attentionJSON([listed[0]], updatedAt: now + 0.4),
       #"{"sessions":[{"cli_id":"cli-5","id":"local_5","link":"claude://claude.ai/epitaxy/local_5","since":1760957700,"state":"permission","title":"S5"}],"updated_at":1760958000}"#)
 check("attention json empty", attentionJSON([]), #"{"sessions":[]}"#)
 
+let decided = waitingSessions(states: [
+    state(1, .done, since: now - 900),
+    state(2, .decision, since: now - 60),
+    state(5, .question, since: now - 30),
+], apps: apps, claudeIsFrontmost: false)
+check("decision is orange, ahead of done", decided.map(\.state), [.decision, .question, .done])
+check("bell orange for a decision", bell(decided.filter { $0.state != .question }), Bell(count: 2, isBlocking: true))
+check("decision state file", parseStateFile(Data(#"{"session_id":"c","state":"decision","since":1}"#.utf8))?.state, .decision)
+check("decision line ru", attentionLine(decided[0], now: now, lang: .ru), "S2 · ждёт решения · 1 мин")
+check("decision line en", attentionLine(decided[0], now: now, lang: .en), "S2 · needs your decision · 1 min")
+
 print(failures == 0 ? "\nall passed" : "\n\(failures) failed")
 exit(failures == 0 ? 0 : 1)

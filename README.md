@@ -50,8 +50,9 @@ Claude app draws it as a second row under the limit rings: memory used and swap,
 Press it for the details and the apps using the most memory.
 
 **Sessions waiting on you.** A bell with a number appears in the menu bar while a session in the
-Claude app waits on you: for permission, with a question, or with a finished task you have not
-opened yet. Its menu lists them, and picking one opens it in the Claude app. Above the prompt in
+Claude app waits on you: for permission, with a question, for your decision on what it proposed,
+or with a finished task you have not opened yet. The first three are orange and come first; a
+finished task is green. Its menu lists them, and picking one opens it in the Claude app. Above the prompt in
 the Claude app, the other waiting sessions show as buttons that do the same. A session that waits
 five minutes brings one notification. Sessions in the terminal are not listed.
 `ClaudeLimits --attention` prints the same list.

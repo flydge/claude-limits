@@ -102,15 +102,17 @@ ClaudeLimits.app --every 2 s--> ~/.claude/attention.json --> mod/limit-rings -->
   sessions only. The levels are computed in Swift alone; the mod draws what the file says.
 - The bell (`AttentionCore.swift` logic, `AttentionItem.swift` menu and file reads; spec in
   `docs/specs/001-attention-bell.md`). The mod (`hooks/attention.ts`) writes its session's state to
-  `~/.claude/attention/<session id>.json` (`session_id`, `state`: `working|permission|question|done|ended`,
+  `~/.claude/attention/<session id>.json` (`session_id`, `state`: `working|permission|question|decision|done|ended`,
   `since` epoch s), only when it changes: `classic.PermissionRequest` is `permission` (`question` for
-  `AskUserQuestion` and `ExitPlanMode`), the waiting tool call ending is `working`, a main-loop turn's end
-  is `done` unless aborted, `session.end` is `ended` (the app deletes that file: the mod API cannot). The app
+  `AskUserQuestion` and `ExitPlanMode`, and while a session offered with `initiation: "offer"` waits), the
+  waiting tool call ending is `working`, a main-loop turn's end is `decision` when the turn's next-step box
+  (`mcp__ccd_turn__wrap_up`) had an `ask`, `actions` or `blocked`, or it proposed a task card
+  (`start_session` with `own_initiative`; `asksOf`), else `done`, unless aborted, `session.end` is `ended` (the app deletes that file: the mod API cannot). The app
   reads those and, read-only, the Claude app's session files (`~/Library/Application Support/Claude/
   claude-code-sessions/*/*/local_*.json`: `sessionId`, `cliSessionId`, `title`, `isArchived`,
   `lastFocusedAt`), keeps waiting sessions the app knows and has not archived (terminal sessions drop
-  out), hides a `done` opened after it finished or on screen in a frontmost Claude app, puts blocking
-  ones first, the longest waiting first, and every 2 s writes `~/.claude/attention.json` (`attentionJSON`:
+  out), hides a `done` opened after it finished or on screen in a frontmost Claude app, puts the orange ones
+  (`permission`, `question`, `decision`) first, the longest waiting first, and every 2 s writes `~/.claude/attention.json` (`attentionJSON`:
   `updated_at`, `sessions` with `id`, `cli_id`, `title`, `state`, `since`, `link`). A link is
   `claude://claude.ai/epitaxy/<local_ id>`; nothing else is opened. One notification per waiting spell
   after 5 min (`reminderAfter`), none for a spell that passed it before the app started. The band draws

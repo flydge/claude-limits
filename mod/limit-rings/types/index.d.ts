@@ -14,7 +14,7 @@ export type SystemDisk = { total: number; available: number; level: SystemLevel 
 export type SystemApp = { name: string; count: number; footprint: number }
 export type System = { measuredAt: number; memory?: SystemMemory; disk?: SystemDisk; top: SystemApp[] }
 
-export type AttentionState = 'permission' | 'question' | 'done'
+export type AttentionState = 'permission' | 'question' | 'decision' | 'done'
 export type AttentionSession = {
   id: string
   cliId: string

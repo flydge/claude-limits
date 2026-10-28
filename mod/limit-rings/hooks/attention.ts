@@ -9,6 +9,9 @@ import { COLORS, type Lang } from './limits'
 export type SessionState = 'working' | AttentionState | 'ended'
 
 export const QUESTION_TOOLS: readonly string[] = ['AskUserQuestion', 'ExitPlanMode']
+// The Claude app's own tools: the next-step box that ends a turn, and a proposed session.
+export const WRAP_UP = 'mcp__ccd_turn__wrap_up'
+export const START_SESSION = 'mcp__ccd_session__start_session'
 export const ATTENTION_POLL_MS = 2_000
 export const ATTENTION_STALE_MS = 10_000
 export const MAX_ROWS = 3
@@ -17,13 +20,15 @@ const TITLE_MAX = 60
 // The state words are the dots' alt text: the band shows a state by its color alone.
 export const ATTENTION_TEXT = {
   en: {
-    permission: 'needs permission', question: 'has a question', done: 'done', untitled: 'Untitled session',
+    permission: 'needs permission', question: 'has a question', decision: 'needs your decision', done: 'done',
+    untitled: 'Untitled session',
     header: (n: number) => `${n} waiting for you`,
     more: (n: number) => `${n} more`,
     minutes: (m: number) => `${m} min`,
   },
   ru: {
-    permission: 'нужно разрешение', question: 'вопрос', done: 'готово', untitled: 'Сессия без названия',
+    permission: 'нужно разрешение', question: 'вопрос', decision: 'ждёт решения', done: 'готово',
+    untitled: 'Сессия без названия',
     header: (n: number) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? 'ждёт' : 'ждут'} ответа`,
     more: (n: number) => `ещё ${n}`,
     minutes: (m: number) => `${m} мин`,
@@ -31,42 +36,71 @@ export const ATTENTION_TEXT = {
 } as const
 
 // The session's state as the hooks hear it. `waitingTool` is the tool a permission prompt
-// or a question is held on: its call ending is the person's answer.
-export type Tracker = { state: SessionState; since: number; waitingTool?: string }
+// or a question is held on: its call ending is the person's answer. `awaitsDecision` marks a
+// turn that put a choice to the person: when it ends, it waits for a decision, not a look.
+export type Tracker = { state: SessionState; since: number; waitingTool?: string; awaitsDecision?: true }
+
+/** What a tool call asks of the person: an answer while it runs, or a decision once the turn ends. */
+export type Asks = 'answer' | 'decision'
 
 export type AttentionEvent =
   | { kind: 'turn.start'; agentId?: string }
   | { kind: 'prompt.submit' }
   | { kind: 'permission'; tool: string }
-  | { kind: 'tool.start'; tool: string }
+  | { kind: 'tool.start'; tool: string; asks?: Asks }
   | { kind: 'tool.end'; tool: string }
   | { kind: 'turn.complete'; reason: string; agentId?: string }
   | { kind: 'session.end' }
 
+// A question tool, and a session offered for the person to start, hold the call for an answer;
+// a next-step box with a question, buttons or `blocked`, and a proposed task card, leave the
+// choice to the person once the turn ends.
+export function asksOf(tool: string, input: Readonly<Record<string, unknown>>): Asks | undefined {
+  if (QUESTION_TOOLS.includes(tool)) return 'answer'
+  if (tool === START_SESSION) {
+    if (input.initiation === 'offer') return 'answer'
+    return input.initiation === 'own_initiative' ? 'decision' : undefined
+  }
+  if (tool === WRAP_UP) {
+    const hasAsk = typeof input.ask === 'string' && input.ask.trim() !== ''
+    const hasActions = Array.isArray(input.actions) && input.actions.length > 0
+    return hasAsk || hasActions || input.blocked === true ? 'decision' : undefined
+  }
+  return undefined
+}
+
 // A permission prompt or a question holds the person whichever loop raised it; a turn's start
 // and end count on the main loop only, as a subagent's turns end inside the main one.
 export function nextState(t: Tracker, ev: AttentionEvent, now: number): Tracker {
-  const to = (state: SessionState, waitingTool?: string): Tracker =>
-    state === t.state && waitingTool === t.waitingTool
+  const to = (state: SessionState, waitingTool: string | undefined, awaitsDecision: boolean): Tracker =>
+    state === t.state && waitingTool === t.waitingTool && awaitsDecision === !!t.awaitsDecision
       ? t
-      : { state, since: state === t.state ? t.since : now, ...(waitingTool ? { waitingTool } : {}) }
+      : {
+          state,
+          since: state === t.state ? t.since : now,
+          ...(waitingTool ? { waitingTool } : {}),
+          ...(awaitsDecision ? { awaitsDecision: true as const } : {}),
+        }
+  const marked = !!t.awaitsDecision
   const isWaiting = t.state === 'permission' || t.state === 'question'
   switch (ev.kind) {
     case 'turn.start':
-      return ev.agentId ? t : to('working')
+      return ev.agentId ? t : to('working', undefined, false)
     case 'prompt.submit':
-      return to('working')
+      return to('working', undefined, false)
     case 'permission':
-      return to(QUESTION_TOOLS.includes(ev.tool) ? 'question' : 'permission', ev.tool)
+      return to(QUESTION_TOOLS.includes(ev.tool) ? 'question' : 'permission', ev.tool, marked)
     case 'tool.start':
-      return QUESTION_TOOLS.includes(ev.tool) ? to('question', ev.tool) : t
+      if (ev.asks === 'answer' || QUESTION_TOOLS.includes(ev.tool)) return to('question', ev.tool, marked)
+      return ev.asks === 'decision' ? to(t.state, t.waitingTool, true) : t
     case 'tool.end':
-      return isWaiting && t.waitingTool === ev.tool ? to('working') : t
+      return isWaiting && t.waitingTool === ev.tool ? to('working', undefined, marked) : t
     case 'turn.complete':
       if (ev.agentId) return t
-      return ev.reason === 'aborted' ? to('working') : to('done')
+      if (ev.reason === 'aborted') return to('working', undefined, false)
+      return to(marked ? 'decision' : 'done', undefined, false)
     case 'session.end':
-      return to('ended')
+      return to('ended', undefined, false)
   }
 }
 
@@ -75,7 +109,7 @@ export function stateFileText(sessionId: string, t: Tracker): string {
 }
 
 const LINK = /^claude:\/\/claude\.ai\/epitaxy\/local_[0-9a-f-]+$/
-const STATES: readonly string[] = ['permission', 'question', 'done']
+const STATES: readonly string[] = ['permission', 'question', 'decision', 'done']
 
 // Only a link into the Claude app is kept: the band hands it to `open`.
 export function parseAttention(text: string, now: number): Attention | null {

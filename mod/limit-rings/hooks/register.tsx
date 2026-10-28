@@ -6,6 +6,7 @@ import {
   ATTENTION_POLL_MS,
   ATTENTION_STALE_MS,
   ATTENTION_TEXT,
+  asksOf,
   bandSessions,
   bellSvg,
   dotSvg,
@@ -191,7 +192,7 @@ export const register: Register = on => {
   })
 
   on('tool.call', async ($, e, next) => {
-    await quietly(track($, { kind: 'tool.start', tool: e.tool }))
+    await quietly(track($, { kind: 'tool.start', tool: e.tool, asks: asksOf(e.tool, e as unknown as Record<string, unknown>) }))
     const result = await next(e)
     await quietly(track($, { kind: 'tool.end', tool: e.tool }))
     return result
