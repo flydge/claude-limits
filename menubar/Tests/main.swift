@@ -153,5 +153,67 @@ check("system json empty", systemJSON(memory: nil, disk: nil, top: []), #"{"top"
 check("system json stamped", systemJSON(memory: nil, disk: nil, top: [], updatedAt: 1_760_958_000.7),
       #"{"top":[],"updated_at":1760958000}"#)
 
+// Attention: sessions waiting on the person.
+
+check("state file", parseStateFile(Data(#"{"session_id":"cli-1","state":"permission","since":1760958000}"#.utf8)),
+      SessionStateFile(cliId: "cli-1", state: .permission, since: now))
+check("state file unknown state", parseStateFile(Data(#"{"session_id":"cli-1","state":"odd","since":1}"#.utf8)), nil)
+check("state file not json", parseStateFile(Data("nope".utf8)), nil)
+check("app session", parseAppSession(Data(#"{"sessionId":"local_a","cliSessionId":"cli-1","title":"Зона","isArchived":false,"lastFocusedAt":1760958000500,"model":"x"}"#.utf8)),
+      AppSession(id: "local_a", cliId: "cli-1", title: "Зона", isArchived: false, lastFocusedAt: now + 0.5))
+check("app session without title", parseAppSession(Data(#"{"sessionId":"local_a","cliSessionId":"cli-1"}"#.utf8))?.title, "")
+check("app session without cli id", parseAppSession(Data(#"{"sessionId":"local_a"}"#.utf8)), nil)
+
+func app(_ n: Int, focused: TimeInterval = now - 3_600, archived: Bool = false) -> AppSession {
+    AppSession(id: "local_\(n)", cliId: "cli-\(n)", title: "S\(n)", isArchived: archived, lastFocusedAt: focused)
+}
+func state(_ n: Int, _ s: AttentionState, since: TimeInterval) -> SessionStateFile {
+    SessionStateFile(cliId: "cli-\(n)", state: s, since: since)
+}
+let apps = [app(1), app(2), app(3), app(4, archived: true), app(5), app(6, focused: now - 60)]
+let listed = waitingSessions(states: [
+    state(1, .done, since: now - 600),          // finished, not looked at since
+    state(2, .question, since: now - 120),
+    state(3, .working, since: now - 30),        // working: not shown
+    state(4, .permission, since: now - 900),    // archived in the app
+    state(5, .permission, since: now - 300),
+    state(7, .permission, since: now - 999),    // a terminal session: no app file
+    state(6, .done, since: now - 120),          // opened after it finished
+], apps: apps, claudeIsFrontmost: false)
+check("waiting order and filter", listed.map(\.id), ["local_5", "local_2", "local_1"])
+check("waiting link", listed.first?.link, "claude://claude.ai/epitaxy/local_5")
+check("done on screen in a frontmost app is seen",
+      waitingSessions(states: [state(6, .done, since: now - 30)], apps: apps, claudeIsFrontmost: true).count, 0)
+check("done on screen in a background app waits",
+      waitingSessions(states: [state(6, .done, since: now - 30)], apps: apps, claudeIsFrontmost: false).map(\.id),
+      ["local_6"])
+check("blocking on screen still waits",
+      waitingSessions(states: [state(6, .permission, since: now - 30)], apps: apps, claudeIsFrontmost: true).count, 1)
+
+check("bell hidden", bell([]), nil)
+check("bell blocking", bell(listed), Bell(count: 3, isBlocking: true))
+check("bell done only", bell(listed.filter { $0.state == .done }), Bell(count: 1, isBlocking: false))
+
+let started = now - 3_600
+let spell = waitingSessions(states: [state(5, .permission, since: now - 299)], apps: apps, claudeIsFrontmost: false)
+check("no reminder before five minutes", remindersDue(spell, reminded: [], startedAt: started, now: now).count, 0)
+check("reminder at five minutes", remindersDue(spell, reminded: [], startedAt: started, now: now + 1).map(\.id), ["local_5"])
+check("one reminder per spell",
+      remindersDue(spell, reminded: [spell[0].episode], startedAt: started, now: now + 600).count, 0)
+let next = waitingSessions(states: [state(5, .done, since: now + 60)], apps: apps, claudeIsFrontmost: false)
+check("a new spell is reminded anew",
+      remindersDue(next, reminded: [spell[0].episode], startedAt: started, now: now + 360).map(\.state), [.done])
+check("no reminder for a spell that passed five minutes before start",
+      remindersDue(spell, reminded: [], startedAt: now + 2, now: now + 600).count, 0)
+
+check("attention line ru", attentionLine(listed[0], now: now, lang: .ru), "S5 · нужно разрешение · 5 мин")
+check("attention line en", attentionLine(listed[1], now: now, lang: .en), "S2 · has a question · 2 min")
+check("attention line untitled",
+      attentionLine(WaitingSession(id: "local_x", cliId: "c", title: " ", state: .done, since: now), now: now, lang: .ru),
+      "Сессия без названия · готово · 0 мин")
+check("attention json", attentionJSON([listed[0]], updatedAt: now + 0.4),
+      #"{"sessions":[{"cli_id":"cli-5","id":"local_5","link":"claude://claude.ai/epitaxy/local_5","since":1760957700,"state":"permission","title":"S5"}],"updated_at":1760958000}"#)
+check("attention json empty", attentionJSON([]), #"{"sessions":[]}"#)
+
 print(failures == 0 ? "\nall passed" : "\n\(failures) failed")
 exit(failures == 0 ? 0 : 1)

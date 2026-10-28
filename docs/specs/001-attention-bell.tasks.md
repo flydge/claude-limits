@@ -5,9 +5,9 @@
 
 - [x] Проверить, что `classic.PermissionRequest` и `$.session.id()` (= `cliSessionId`) работают в моде в сессии приложения; выбрать способ ловить запрос разрешения
 - [x] Мод: `hooks/attention.ts` — переходы состояний и запись `~/.claude/attention/<id>.json`, тесты
-- [ ] Swift: `AttentionCore.swift` — сборка списка, «просмотрено», порядок, напоминание, `--attention-json` и `--attention`, тесты
-- [ ] Swift: `AttentionItem.swift` — колокольчик, меню, переход по ссылке, напоминание с переходом по нажатию
-- [ ] Мод: кнопки в полосе над полем ввода, чтение `attention.json`, запасной вызов `--attention-json`, тесты
+- [x] Swift: `AttentionCore.swift` — сборка списка, «просмотрено», порядок, напоминание, `--attention-json` и `--attention`, тесты
+- [x] Swift: `AttentionItem.swift` — колокольчик, меню, переход по ссылке, напоминание с переходом по нажатию
+- [x] Мод: кнопки в полосе над полем ввода, чтение `attention.json`, запасной вызов `--attention-json`, тесты
 - [ ] Строки на русском и английском, версия мода 0.4.0, README и AGENTS.md
 - [ ] `install.sh`: удаление новых файлов при `uninstall`, проверки в `tests/install.test.sh`
 - [ ] Все четыре набора тестов

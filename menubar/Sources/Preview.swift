@@ -1,6 +1,6 @@
 import AppKit
 
-// Renders every ring state and the system item, in light and dark appearance, to a PNG so the icon
+// Renders every ring state, the system item and the bell, in light and dark appearance, to a PNG so the icon
 // can be checked without the menu bar:  ClaudeLimits --preview out.png
 
 enum Preview {
@@ -17,6 +17,8 @@ enum Preview {
             { RingIcon.systemImage(memory: .normal(fraction: 0.93, level: .danger, label: "93"),
                                    disk: .normal(fraction: 0.98, level: .danger, label: "98")) },
             { RingIcon.systemImage(memory: .empty, disk: .empty) },
+            { RingIcon.bellImage(Bell(count: 2, isBlocking: true)) },
+            { RingIcon.bellImage(Bell(count: 1, isBlocking: false)) },
         ]
         let scale: CGFloat = 4
         let pad: CGFloat = 6

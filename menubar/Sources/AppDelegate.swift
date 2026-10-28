@@ -1,13 +1,14 @@
 import AppKit
 
 // Menu bar item: two rings from ~/.claude/limits.json, details in the menu.
-// Beside it, SystemItem shows memory and disk.
+// Beside it, SystemItem shows memory and disk, and AttentionItem the sessions waiting on the person.
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
     private var timer: Timer?
     private var system: SystemItem?
+    private var attention: AttentionItem?
     private let lang = Lang.resolve(override: ProcessInfo.processInfo.environment["CLAUDE_LIMITS_LANG"],
                                     preferred: Locale.preferredLanguages)
     private let fileURL: URL = {
@@ -29,6 +30,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             object: nil)
         system = SystemItem(lang: lang)
         system?.start()
+        attention = AttentionItem(lang: lang)
+        attention?.start()
     }
 
     func menuWillOpen(_ menu: NSMenu) {

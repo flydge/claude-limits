@@ -3,5 +3,5 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p ../build
-swiftc -o ../build/limits-core-tests Sources/LimitsCore.swift Sources/SystemCore.swift Tests/main.swift
+swiftc -o ../build/limits-core-tests Sources/LimitsCore.swift Sources/SystemCore.swift Sources/AttentionCore.swift Tests/main.swift
 ../build/limits-core-tests

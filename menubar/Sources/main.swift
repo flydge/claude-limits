@@ -12,6 +12,19 @@ if arguments.count == 2, arguments[1] == "--system-json" {
                      top: groupProcesses(SystemProbe.processes(), limit: 7)))
     exit(0)
 }
+// Sessions waiting on the person as JSON for the desktop mod:  ClaudeLimits --attention-json
+if arguments.count == 2, arguments[1] == "--attention-json" {
+    print(attentionJSON(AttentionFiles.current(), updatedAt: Date().timeIntervalSince1970))
+    exit(0)
+}
+// Prints what the bell's menu would show:  ClaudeLimits --attention
+if arguments.count == 2, arguments[1] == "--attention" {
+    let lang = Lang.resolve(override: ProcessInfo.processInfo.environment["CLAUDE_LIMITS_LANG"],
+                            preferred: Locale.preferredLanguages)
+    let now = Date().timeIntervalSince1970
+    for session in AttentionFiles.current() { print(attentionLine(session, now: now, lang: lang)) }
+    exit(0)
+}
 // Prints what the system item's menu would show:  ClaudeLimits --system
 if arguments.count == 2, arguments[1] == "--system" {
     let lang = Lang.resolve(override: ProcessInfo.processInfo.environment["CLAUDE_LIMITS_LANG"],

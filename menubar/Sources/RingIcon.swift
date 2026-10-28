@@ -35,9 +35,28 @@ enum RingIcon {
         return image
     }
 
-    private static func drawSymbol(_ name: String, in rect: NSRect) {
-        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
-            .applying(NSImage.SymbolConfiguration(paletteColors: [.labelColor]))
+    /// The attention bell with the number of waiting sessions: orange while one is blocked,
+    /// green when they are only done.
+    static func bellImage(_ bell: Bell) -> NSImage {
+        let color: NSColor = bell.isBlocking ? .systemOrange : .systemGreen
+        let text = NSAttributedString(string: "\(bell.count)", attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold), .foregroundColor: color,
+        ])
+        let textSize = text.size()
+        let size = NSSize(width: symbolWidth + 2 + ceil(textSize.width), height: ringSize)
+        let image = NSImage(size: size, flipped: false) { _ in
+            drawSymbol("bell.fill", in: NSRect(x: 0, y: 0, width: symbolWidth, height: ringSize), color: color, pointSize: 13)
+            text.draw(at: NSPoint(x: symbolWidth + 2, y: (ringSize - textSize.height) / 2))
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+
+    private static func drawSymbol(_ name: String, in rect: NSRect, color: NSColor = .labelColor,
+                                   pointSize: CGFloat = 11) {
+        let config = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
         guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
             .withSymbolConfiguration(config) else { return }
         let size = symbol.size
