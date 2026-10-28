@@ -14,8 +14,25 @@ export type SystemDisk = { total: number; available: number; level: SystemLevel 
 export type SystemApp = { name: string; count: number; footprint: number }
 export type System = { measuredAt: number; memory?: SystemMemory; disk?: SystemDisk; top: SystemApp[] }
 
+export type AttentionState = 'permission' | 'question' | 'done'
+export type AttentionSession = {
+  id: string
+  cliId: string
+  title: string
+  state: AttentionState
+  since: number
+  link: string
+}
+export type Attention = { measuredAt: number; sessions: AttentionSession[] }
+
 declare module 'claude-code' {
   interface PluginState {
-    'limit-rings': { limits: Limits | null; minute: number; system: System | null; systemOpen: boolean }
+    'limit-rings': {
+      limits: Limits | null
+      minute: number
+      system: System | null
+      systemOpen: boolean
+      attention: Attention | null
+    }
   }
 }

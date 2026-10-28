@@ -1,7 +1,23 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { LimitWindow, Limits, System } from '../types'
+import type { Attention, LimitWindow, Limits, System } from '../types'
+import {
+  ATTENTION_POLL_MS,
+  ATTENTION_STALE_MS,
+  ATTENTION_TEXT,
+  chipsFor,
+  dotSvg,
+  isOpenableLink,
+  nextState,
+  parseAttention,
+  sameSessions,
+  shortTitle,
+  stateColor,
+  stateFileText,
+  type AttentionEvent,
+  type Tracker,
+} from './attention'
 import {
   FIVE_HOUR_MS,
   SEVEN_DAY_MS,
@@ -21,11 +37,14 @@ import { STALE_MS, SYSTEM_POLL_MS, SYSTEM_TEXT, parseSystem, systemTexts, usedRi
 // Each reading is also saved to ~/.claude/limits.json for the menu bar app.
 // Below them a row with memory and disk, read every 5 s from ~/.claude/system.json
 // that the menu bar app writes; pressing it shows the details and the top apps.
+// Above them, buttons for the other sessions waiting on the person, read every 2 s from
+// ~/.claude/attention.json; each session's own state goes to ~/.claude/attention/<id>.json.
 
 const limits = atom({ plugin: 'limit-rings', key: 'limits' } as const, null as Limits | null)
 const minute = atom({ plugin: 'limit-rings', key: 'minute' } as const, 0)
 const system = atom({ plugin: 'limit-rings', key: 'system' } as const, null as System | null)
 const systemOpen = atom({ plugin: 'limit-rings', key: 'systemOpen' } as const, false)
+const attention = atom({ plugin: 'limit-rings', key: 'attention' } as const, null as Attention | null)
 
 const APP_BIN = 'Applications/ClaudeLimits.app/Contents/MacOS/ClaudeLimits'
 
@@ -80,6 +99,54 @@ async function poll($: Engine) {
   }
 }
 
+let tracker: Tracker | null = null
+
+// The file is written only when the state changes, so a busy turn writes nothing.
+async function track($: Engine, ev: AttentionEvent) {
+  const now = await $.clock.now()
+  const before = tracker
+  const after = nextState(before ?? { state: 'working', since: now }, ev, now)
+  tracker = after
+  if (before && before.state === after.state) return
+  const home = await $.env.get('HOME')
+  const id = await $.session.id()
+  if (home && id) await $.fs.write(`${home}/.claude/attention/${id}.json`, stateFileText(id, after))
+}
+
+// Tracking never holds up the event it heard.
+const quietly = (p: Promise<unknown>) => p.catch(() => undefined)
+
+let lastAsked = 0
+
+// As with system.json: the binary is asked when the file is stale, in desktop sessions only,
+// and at most every 10 s so a stopped menu bar app costs a session little.
+async function readAttention($: Engine): Promise<Attention | null> {
+  const home = await $.env.get('HOME')
+  if (!home) return null
+  const now = await $.clock.now()
+  const text = await $.fs.read(`${home}/.claude/attention.json`).catch(() => undefined)
+  const fromFile = text ? parseAttention(text, now) : null
+  if (fromFile && now - fromFile.measuredAt <= ATTENTION_STALE_MS) return fromFile
+  if ((await $.env.get('CLAUDE_CODE_ENTRYPOINT')) !== 'claude-desktop') return fromFile
+  if (now - lastAsked < ATTENTION_STALE_MS) return await read($, attention)
+  lastAsked = now
+  const run = await $.process.run([`${home}/${APP_BIN}`, '--attention-json'], { timeoutMs: 4000 }).catch(() => undefined)
+  return (run?.exitCode === 0 ? parseAttention(run.stdout, now) : null) ?? fromFile
+}
+
+let isPollingAttention = false
+
+async function pollAttention($: Engine) {
+  if (isPollingAttention) return
+  isPollingAttention = true
+  try {
+    const reading = await readAttention($)
+    if (!sameSessions(reading, await read($, attention))) await update($, attention, () => reading)
+  } finally {
+    isPollingAttention = false
+  }
+}
+
 export const register: Register = on => {
   let lang: Lang = 'en'
 
@@ -92,7 +159,41 @@ export const register: Register = on => {
     $.clock.every(60_000, () => update($, minute, n => n + 1))
     await poll($)
     $.clock.every(SYSTEM_POLL_MS, () => poll($))
+    await pollAttention($)
+    $.clock.every(ATTENTION_POLL_MS, () => pollAttention($))
     return result
+  })
+
+  on('prompt.submit', async ($, e, next) => {
+    await quietly(track($, { kind: 'prompt.submit' }))
+    return next(e)
+  })
+
+  on('turn.start', async ($, e, next) => {
+    await quietly(track($, { kind: 'turn.start', agentId: e.agentId }))
+    return next(e)
+  })
+
+  on('classic.PermissionRequest', async ($, e, next) => {
+    await quietly(track($, { kind: 'permission', tool: e.tool_name }))
+    return next(e)
+  })
+
+  on('tool.call', async ($, e, next) => {
+    await quietly(track($, { kind: 'tool.start', tool: e.tool }))
+    const result = await next(e)
+    await quietly(track($, { kind: 'tool.end', tool: e.tool }))
+    return result
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    await quietly(track($, { kind: 'turn.complete', reason: e.reason, agentId: e.agentId }))
+    return next(e)
+  })
+
+  on('session.end', async ($, e, next) => {
+    await quietly(track($, { kind: 'session.end' }))
+    return next(e)
   })
 
   on('session.measure', async ($, e, next) => {
@@ -105,11 +206,36 @@ export const register: Register = on => {
     const reading = await read($, limits)
     const sys = await read($, system)
     const isOpen = await read($, systemOpen)
+    const waiting = chipsFor(await read($, attention), await $.session.id().catch(() => ''))
     await read($, minute)
-    if (!reading && !sys) return next(e)
+    if (!reading && !sys && waiting.shown.length === 0) return next(e)
 
     const now = await $.clock.now()
     const { Box, Button, Svg, Text } = $.ui.resolve(e)
+
+    const rows = []
+    if (waiting.shown.length > 0) {
+      const a = ATTENTION_TEXT[lang]
+      const chips = waiting.shown.map(s => {
+        const open = () => {
+          if (isOpenableLink(s.link)) void $.process.run(['open', s.link], { timeoutMs: 5000 }).catch(() => undefined)
+        }
+        return (
+          <Box key={`attention-${s.id}`} flexDirection="row" alignItems="center">
+            <Svg source={dotSvg(stateColor(s.state))} alt={a[s.state]} width={12} height={12} />
+            <Button key={`attention-open-${s.id}`} onPress={open}>
+              {' '}{shortTitle(s.title, lang)} <Text dimColor>· {a[s.state]}</Text>
+            </Button>
+          </Box>
+        )
+      })
+      if (waiting.hidden > 0) chips.push(<Text key="attention-more" size="footnote" dimColor>+{waiting.hidden}</Text>)
+      rows.push(
+        <Box key="attention" flexDirection="row" alignItems="center" columnGap="lg">
+          {chips}
+        </Box>,
+      )
+    }
 
     const item = (key: string, title: string, w: LimitWindow | undefined, lengthMs: number) => {
       const text = windowText(w, lengthMs, now, lang)
@@ -127,7 +253,6 @@ export const register: Register = on => {
       )
     }
 
-    const rows = []
     if (reading) {
       rows.push(
         <Box key="limits" flexDirection="row" alignItems="center" columnGap="lg">
