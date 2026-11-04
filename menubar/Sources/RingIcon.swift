@@ -8,6 +8,15 @@ enum RingIcon {
     static let gap: CGFloat = 4
     static let lineWidth: CGFloat = 1.8
 
+    static func image(_ only: RingState) -> NSImage {
+        let image = NSImage(size: NSSize(width: ringSize, height: ringSize), flipped: false) { _ in
+            draw(only, in: NSRect(x: 0, y: 0, width: ringSize, height: ringSize))
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+
     static func image(_ left: RingState, _ right: RingState) -> NSImage {
         let size = NSSize(width: ringSize * 2 + gap, height: ringSize)
         let image = NSImage(size: size, flipped: false) { _ in
@@ -21,14 +30,28 @@ enum RingIcon {
 
     static let symbolWidth: CGFloat = 16
 
-    static func systemImage(memory: RingState, disk: RingState) -> NSImage {
-        let pair = symbolWidth + ringSize
-        let size = NSSize(width: pair * 2 + gap, height: ringSize)
+    static let systemPair = symbolWidth + ringSize
+
+    static func systemWidth(count: Int) -> CGFloat {
+        CGFloat(max(count, 1)) * systemPair + CGFloat(max(count - 1, 0)) * gap
+    }
+
+    /// The chosen rings in order: CPU and GPU after a small text label, memory and disk after a chip and
+    /// drive symbol.
+    static func systemImage(_ rings: [(SystemRing, RingState)]) -> NSImage {
+        let size = NSSize(width: systemWidth(count: rings.count), height: ringSize)
         let image = NSImage(size: size, flipped: false) { _ in
-            drawSymbol("memorychip", in: NSRect(x: 0, y: 0, width: symbolWidth, height: ringSize))
-            draw(memory, in: NSRect(x: symbolWidth, y: 0, width: ringSize, height: ringSize))
-            drawSymbol("internaldrive", in: NSRect(x: pair + gap, y: 0, width: symbolWidth, height: ringSize))
-            draw(disk, in: NSRect(x: pair + gap + symbolWidth, y: 0, width: ringSize, height: ringSize))
+            for (index, (ring, state)) in rings.enumerated() {
+                let x = CGFloat(index) * (systemPair + gap)
+                let mark = NSRect(x: x, y: 0, width: symbolWidth, height: ringSize)
+                switch ring {
+                case .cpu: drawLabel("CPU", in: mark)
+                case .gpu: drawLabel("GPU", in: mark)
+                case .memory: drawSymbol("memorychip", in: mark)
+                case .disk: drawSymbol("internaldrive", in: mark)
+                }
+                draw(state, in: NSRect(x: x + symbolWidth, y: 0, width: ringSize, height: ringSize))
+            }
             return true
         }
         image.isTemplate = false
@@ -51,6 +74,14 @@ enum RingIcon {
         }
         image.isTemplate = false
         return image
+    }
+
+    private static func drawLabel(_ label: String, in rect: NSRect) {
+        let text = NSAttributedString(string: label, attributes: [
+            .font: NSFont.systemFont(ofSize: 6.5, weight: .bold), .foregroundColor: NSColor.labelColor, .kern: -0.3,
+        ])
+        let size = text.size()
+        text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
     }
 
     private static func drawSymbol(_ name: String, in rect: NSRect, color: NSColor = .labelColor,

@@ -47,7 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let now = Date().timeIntervalSince1970
         let five = ringState(snapshot?.fiveHour, updatedAt: snapshot?.updatedAt, now: now)
         let week = ringState(snapshot?.sevenDay, updatedAt: snapshot?.updatedAt, now: now)
-        statusItem.button?.image = RingIcon.image(five, week)
+        // A plan without a 5-hour limit reports only the week: one ring, no empty slot.
+        statusItem.button?.image = hasFiveHour(snapshot) ? RingIcon.image(five, week) : RingIcon.image(week)
         rebuildMenu(snapshot, five: five, week: week, now: now)
     }
 
@@ -56,8 +57,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let text = Strings.of(lang)
         menu.removeAllItems()
 
-        menu.addItem(windowItem(windowLine(title: text.fiveHours, snapshot?.fiveHour, now: now, calendar: calendar, lang: lang),
-                                state: five))
+        if hasFiveHour(snapshot) {
+            menu.addItem(windowItem(windowLine(title: text.fiveHours, snapshot?.fiveHour, now: now, calendar: calendar, lang: lang),
+                                    state: five))
+        }
         if case .normal = five,
            let line = forecastLine(snapshot?.fiveHour, kind: .fiveHour, now: now, calendar: calendar, lang: lang) {
             menu.addItem(noteItem(line, indented: true))

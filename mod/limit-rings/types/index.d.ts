@@ -9,10 +9,24 @@ export type SystemMemory = {
   swapUsed: number
   pressure: 'normal' | 'warn' | 'critical'
   level: SystemLevel
+  /** macOS's own estimate of free memory (kern.memorystatus_level × RAM), what gpu-run admits jobs by. */
+  available?: number
 }
+export type SystemCpu = { percent: number; level: SystemLevel }
+/** inUse: unified memory the GPU holds now; allocated: what its driver has allocated. */
+export type SystemGpu = { utilization: number; inUse: number; allocated: number; level: SystemLevel }
+export type SystemQueue = { running: number; waiting: number; runningGB: number; budgetGB: number }
 export type SystemDisk = { total: number; available: number; level: SystemLevel }
 export type SystemApp = { name: string; count: number; footprint: number }
-export type System = { measuredAt: number; memory?: SystemMemory; disk?: SystemDisk; top: SystemApp[] }
+export type System = {
+  measuredAt: number
+  memory?: SystemMemory
+  disk?: SystemDisk
+  cpu?: SystemCpu
+  gpu?: SystemGpu
+  queue?: SystemQueue
+  top: SystemApp[]
+}
 
 export type AttentionState = 'permission' | 'question' | 'decision' | 'done'
 export type AttentionSession = {
@@ -31,7 +45,6 @@ declare module 'claude-code' {
       limits: Limits | null
       minute: number
       system: System | null
-      systemOpen: boolean
       attention: Attention | null
     }
   }

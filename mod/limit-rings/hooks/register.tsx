@@ -36,25 +36,22 @@ import {
   type Lang,
   type RateLimitLike,
 } from './limits'
-import { STALE_MS, SYSTEM_POLL_MS, SYSTEM_TEXT, parseSystem, systemTexts, usedRingSvg } from './system'
+import { STALE_MS, SYSTEM_POLL_MS, memoryUsed, parseSystem, systemTexts, usedRingSvg } from './system'
 
 // Rings with the 5-hour and weekly limits above the prompt in the desktop app.
 // The terminal already has the status line, so the band draws on `desktop` only.
 // Each reading is also saved to ~/.claude/limits.json for the menu bar app.
-// Below them a row with memory and disk, read every 5 s from ~/.claude/system.json
-// that the menu bar app writes; pressing it shows the details and the top apps.
+// Below them a row with CPU, GPU, memory and disk, read every 5 s from ~/.claude/system.json
+// that the menu bar app writes (the details and top apps are in the menu bar app's menu).
 // Above them, buttons for the other sessions waiting on the person, read every 2 s from
 // ~/.claude/attention.json; each session's own state goes to ~/.claude/attention/<id>.json.
 
 const limits = atom({ plugin: 'limit-rings', key: 'limits' } as const, null as Limits | null)
 const minute = atom({ plugin: 'limit-rings', key: 'minute' } as const, 0)
 const system = atom({ plugin: 'limit-rings', key: 'system' } as const, null as System | null)
-const systemOpen = atom({ plugin: 'limit-rings', key: 'systemOpen' } as const, false)
 const attention = atom({ plugin: 'limit-rings', key: 'attention' } as const, null as Attention | null)
 
 const APP_BIN = 'Applications/ClaudeLimits.app/Contents/MacOS/ClaudeLimits'
-// The memory details link: answered by the mod, never opened.
-const DETAILS_HREF = 'https://limit-rings.invalid/details'
 
 function openSession($: Engine, link: string) {
   if (isOpenableLink(link)) void $.process.run(['open', link], { timeoutMs: 5000 }).catch(() => undefined)
@@ -217,7 +214,6 @@ export const register: Register = on => {
     if (e.surface !== 'desktop' || e.props.hasSurvey) return next(e)
     const reading = await read($, limits)
     const sys = await read($, system)
-    const isOpen = await read($, systemOpen)
     const waiting = bandSessions(await read($, attention), await $.session.id().catch(() => ''))
     await read($, minute)
     if (!reading && !sys && waiting.shown.length === 0) return next(e)
@@ -273,24 +269,41 @@ export const register: Register = on => {
       )
     }
 
+    // Only the windows the plan reports: a plan without the 5-hour limit gets no empty slot for it.
     if (reading) {
+      const windows = []
+      if (reading.fiveHour) windows.push(item('five-hour', TEXT[lang].fiveHours, reading.fiveHour, FIVE_HOUR_MS))
+      if (reading.sevenDay) windows.push(item('seven-day', TEXT[lang].week, reading.sevenDay, SEVEN_DAY_MS))
       rows.push(
         <Box key="limits" flexDirection="row" alignItems="center" columnGap="lg">
-          {item('five-hour', TEXT[lang].fiveHours, reading.fiveHour, FIVE_HOUR_MS)}
-          {item('seven-day', TEXT[lang].week, reading.sevenDay, SEVEN_DAY_MS)}
+          {windows}
         </Box>,
       )
     }
     if (sys) {
-      const t = SYSTEM_TEXT[lang]
       const texts = systemTexts(sys, lang)
       const stale = now - sys.measuredAt > STALE_MS
-      const toggle = () => update($, systemOpen, open => !open)
       const parts = []
+      if (sys.cpu && texts.cpu) {
+        parts.push(
+          <Box key="cpu" flexDirection="row" alignItems="center">
+            <Svg source={usedRingSvg(sys.cpu.percent, 100, sys.cpu.level, stale)} alt={texts.cpu} width={20} height={20} />
+            <Text size="footnote"> {texts.cpu}</Text>
+          </Box>,
+        )
+      }
+      if (sys.gpu && texts.gpu) {
+        parts.push(
+          <Box key="gpu" flexDirection="row" alignItems="center">
+            <Svg source={usedRingSvg(sys.gpu.utilization, 100, sys.gpu.level, stale)} alt={texts.gpu} width={20} height={20} />
+            <Text size="footnote"> {texts.gpu}</Text>
+          </Box>,
+        )
+      }
       if (sys.memory && texts.memory) {
         parts.push(
           <Box key="memory" flexDirection="row" alignItems="center">
-            <Svg source={usedRingSvg(sys.memory.used, sys.memory.total, sys.memory.level, stale)}
+            <Svg source={usedRingSvg(memoryUsed(sys.memory), sys.memory.total, sys.memory.level, stale)}
               alt={texts.memory} width={20} height={20} />
             <Text size="footnote"> {texts.memory}</Text>
           </Box>,
@@ -305,39 +318,16 @@ export const register: Register = on => {
           </Box>,
         )
       }
-      // A link rather than a Button: the desktop draws a Button as a grey native button.
-      parts.push(
-        <Markdown key="system-details" text={`[${isOpen ? t.less : t.more}](${DETAILS_HREF})`}
-          onLinkPress={toggle} pressableLinks={[DETAILS_HREF]} />,
-      )
       rows.push(
-        <Box key="system" flexDirection="row" alignItems="center" columnGap="lg">
+        <Box key="system" flexDirection="row" alignItems="center" columnGap="lg" flexWrap="wrap">
           {parts}
         </Box>,
       )
-      if (!isOpen && !stale) {
+      if (texts.queue && !stale) rows.push(<Text key="queue" size="footnote" dimColor>{texts.queue}</Text>)
+      if (!stale) {
         for (const [i, hint] of texts.hints.entries()) {
-          rows.push(<Text size="footnote" color="warning">{hint}</Text>)
+          rows.push(<Text key={`hint-${i}`} size="footnote" color="warning">{hint}</Text>)
         }
-      }
-      if (isOpen) {
-        const details = []
-        if (texts.memoryDetail) details.push(<Text size="footnote" dimColor>{texts.memoryDetail}</Text>)
-        if (texts.diskDetail) details.push(<Text size="footnote" dimColor>{texts.diskDetail}</Text>)
-        for (const [i, hint] of texts.hints.entries()) {
-          details.push(<Text size="footnote" color="warning">{hint}</Text>)
-        }
-        if (texts.top.length > 0) {
-          details.push(<Text size="footnote">{t.top}</Text>)
-          for (const [i, line] of texts.top.entries()) {
-            details.push(<Text size="footnote" dimColor>  {line}</Text>)
-          }
-        }
-        rows.push(
-          <Box key="system-details-box" flexDirection="column">
-            {details}
-          </Box>,
-        )
       }
     }
 

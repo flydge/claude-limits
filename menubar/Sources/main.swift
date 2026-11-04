@@ -8,8 +8,12 @@ if arguments.count == 3, arguments[1] == "--preview" {
 }
 // Memory, disk and top apps as JSON for the desktop mod:  ClaudeLimits --system-json
 if arguments.count == 2, arguments[1] == "--system-json" {
+    let before = SystemProbe.cpuTicks()
+    usleep(250_000)
+    let cpu = SystemProbe.cpuTicks().flatMap { cpuPercent(previous: before, current: $0) }
     print(systemJSON(memory: SystemProbe.memory(), disk: SystemProbe.disk(),
-                     top: groupProcesses(SystemProbe.processes(), limit: 7)))
+                     top: groupProcesses(SystemProbe.processes(), limit: 7),
+                     cpu: cpu, gpu: SystemProbe.gpu(), queue: SystemProbe.queue()))
     exit(0)
 }
 // Sessions waiting on the person as JSON for the desktop mod:  ClaudeLimits --attention-json
@@ -29,7 +33,13 @@ if arguments.count == 2, arguments[1] == "--attention" {
 if arguments.count == 2, arguments[1] == "--system" {
     let lang = Lang.resolve(override: ProcessInfo.processInfo.environment["CLAUDE_LIMITS_LANG"],
                             preferred: Locale.preferredLanguages)
-    let memory = SystemProbe.memory(), disk = SystemProbe.disk()
+    let memory = SystemProbe.memory(), disk = SystemProbe.disk(), gpu = SystemProbe.gpu()
+    let before = SystemProbe.cpuTicks()
+    usleep(250_000)
+    let cpu = SystemProbe.cpuTicks().flatMap { cpuPercent(previous: before, current: $0) }
+    print(cpuLine(cpu, lang: lang), loadRing(cpu))
+    print(gpuLine(gpu, lang: lang), loadRing(gpu.map { Double($0.utilization) }))
+    if let line = queueLine(SystemProbe.queue(), lang: lang) { print("  " + line) }
     print(memoryLine(memory, lang: lang), memoryRing(memory))
     if let memory { print("  " + memoryDetailLine(memory, lang: lang)) }
     print(diskLine(disk, lang: lang), diskRing(disk))

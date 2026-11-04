@@ -85,7 +85,7 @@ How the parts fit:
 Claude Code (terminal) --stdin JSON--> statusline/statusline-limits.sh --> status line
 Claude app (Code tab)  --$.session---> mod/limit-rings               --> rings above the prompt
                 both write ~/.claude/limits.json --> menubar/ (ClaudeLimits.app) --> menu bar rings
-ClaudeLimits.app --every 5 s--> ~/.claude/system.json --> mod/limit-rings --> memory and disk row
+ClaudeLimits.app --every 5 s--> ~/.claude/system.json --> mod/limit-rings --> CPU, GPU, memory and disk row
 mod/limit-rings (each session) --> ~/.claude/attention/<id>.json --> ClaudeLimits.app --> bell
 ClaudeLimits.app --every 2 s--> ~/.claude/attention.json --> mod/limit-rings --> waiting-session buttons
 ```

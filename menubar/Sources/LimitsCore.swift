@@ -143,3 +143,9 @@ func updatedLine(_ updatedAt: TimeInterval?, now: TimeInterval, lang: Lang) -> S
     if minutes < 1_440 { return String(format: text.hoursAgo, minutes / 60) }
     return String(format: text.daysAgo, minutes / 1_440)
 }
+
+/// False only when the reading has the week but no 5-hour window: a plan without that limit.
+/// With no reading at all both slots stay, showing "no data".
+func hasFiveHour(_ snapshot: Snapshot?) -> Bool {
+    snapshot?.fiveHour != nil || snapshot?.sevenDay == nil
+}

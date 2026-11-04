@@ -12,18 +12,21 @@ enum Preview {
             (.empty, .empty),
         ]
         let images: [() -> NSImage] = rows.map { row in { RingIcon.image(row.0, row.1) } } + [
-            { RingIcon.systemImage(memory: .normal(fraction: 0.55, level: .ok, label: "55"),
-                                   disk: .normal(fraction: 0.7, level: .warn, label: "70")) },
-            { RingIcon.systemImage(memory: .normal(fraction: 0.93, level: .danger, label: "93"),
-                                   disk: .normal(fraction: 0.98, level: .danger, label: "98")) },
-            { RingIcon.systemImage(memory: .empty, disk: .empty) },
+            { RingIcon.systemImage([(.cpu, .normal(fraction: 0.23, level: .ok, label: "23")),
+                                    (.gpu, .normal(fraction: 0.76, level: .warn, label: "76")),
+                                    (.memory, .normal(fraction: 0.55, level: .ok, label: "55")),
+                                    (.disk, .normal(fraction: 0.7, level: .warn, label: "70"))]) },
+            { RingIcon.systemImage([(.cpu, .normal(fraction: 0.99, level: .danger, label: "99")),
+                                    (.gpu, .normal(fraction: 0.9, level: .danger, label: "90")),
+                                    (.memory, .normal(fraction: 0.93, level: .danger, label: "93")),
+                                    (.disk, .normal(fraction: 0.98, level: .danger, label: "98"))]) },
+            { RingIcon.systemImage([(.gpu, .empty), (.memory, .empty)]) },
             { RingIcon.bellImage(Bell(count: 2, isBlocking: true)) },
             { RingIcon.bellImage(Bell(count: 1, isBlocking: false)) },
         ]
         let scale: CGFloat = 4
         let pad: CGFloat = 6
-        let icon = NSSize(width: (RingIcon.symbolWidth + RingIcon.ringSize) * 2 + RingIcon.gap,
-                          height: RingIcon.ringSize)
+        let icon = NSSize(width: RingIcon.systemWidth(count: 4), height: RingIcon.ringSize)
         let columnWidth = icon.width + pad * 2
         let width = columnWidth * 2
         let height = (icon.height + pad) * CGFloat(images.count) + pad

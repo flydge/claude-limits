@@ -64,7 +64,7 @@ test('ring colour follows the level, grey when stale', () => {
   expect(usedRingSvg(42, 48, 'ok', true)).not.toContain(COLORS.ok)
 })
 
-test('the band shows memory and disk and opens the details on press', async ($, on) => {
+test('the band shows memory, disk and the warnings, with no Details link', async ($, on) => {
   const clock = mock.clock(on)
   const reading = { ...parseSystem(json, now)!, measuredAt: clock.now() }
   on('state.get', ($, e, next) =>
@@ -81,12 +81,67 @@ test('the band shows memory and disk and opens the details on press', async ($, 
   expect(await ui.find({ type: 'Text', text: /swap 28\.5 GB/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /free 19\.2 GB/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /ChatGPT/ })).toBeUndefined()
-  const details = { key: 'system-details', link: { href: 'https://limit-rings.invalid/details' } }
+  expect(await ui.find({ type: 'Text', text: /memory is running out/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /disk almost full/ })).toBeDefined()
+  expect(await ui.find({ key: 'system-details' })).toBeUndefined()
   expect(await ui.findAll({ type: 'Button' })).toHaveLength(0)
-  await ui.press(details)
-  expect(await ui.find({ type: 'Text', text: /ChatGPT ×292 · 23\.6 GB/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /pressure: high/ })).toBeDefined()
-  await ui.press(details)
-  expect(await ui.find({ type: 'Text', text: /ChatGPT/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+// What the app prints since it reads CPU, GPU and the gpu-run queue.
+const full = JSON.stringify({
+  ...JSON.parse(json),
+  memory: { ...JSON.parse(json).memory, available: 19 * GIB },
+  cpu: { percent: 23, level: 'ok' },
+  gpu: { utilization: 76, in_use: 4 * GIB, allocated: 6.5 * GIB, level: 'warn' },
+  queue: { running: 2, waiting: 1, running_gb: 22, budget_gb: 30 },
+})
+
+test('parses CPU, GPU, queue and macOS available memory', () => {
+  const s = parseSystem(full, now)!
+  expect(s.cpu).toEqual({ percent: 23, level: 'ok' })
+  expect(s.gpu).toEqual({ utilization: 76, inUse: 4 * GIB, allocated: 6.5 * GIB, level: 'warn' })
+  expect(s.queue).toEqual({ running: 2, waiting: 1, runningGB: 22, budgetGB: 30 })
+  expect(s.memory?.available).toBe(19 * GIB)
+  expect(parseSystem(json, now)?.cpu).toBe(undefined)
+})
+
+test('CPU, GPU, queue and memory texts', () => {
+  const ru = systemTexts(parseSystem(full, now)!, 'ru')
+  expect(ru.cpu).toBe('CPU 23%')
+  expect(ru.gpu).toBe('GPU 76% · 4 ГБ')
+  expect(ru.queue).toBe('Очередь GPU: идут 2 · ждут 1')
+  expect(ru.memory).toBe('Память: доступно 19 ГБ · своп 28,5 ГБ')
+  expect(ru.gpuDetail).toBe('GPU: загрузка 76% · держит 4 ГБ · выделено 6,5 ГБ')
+  expect(ru.memoryDetail).toBe(
+    'Память: доступно 19 из 48 ГБ · в Мониторинге занято 42 ГБ · сжато 20,9 ГБ · своп 28,5 ГБ · давление: высокое')
+  const empty = { ...parseSystem(full, now)!, queue: { running: 0, waiting: 0, runningGB: 0, budgetGB: 30 } }
+  expect(systemTexts(empty, 'en').queue).toBe(undefined)
+})
+
+test('the band shows CPU, GPU and the queue; a plan without the 5-hour limit gets no slot for it', async ($, on) => {
+  const clock = mock.clock(on)
+  const reading = { ...parseSystem(full, now)!, measuredAt: clock.now() }
+  const weekOnly = { measuredAt: clock.now(), sevenDay: { percentUsed: 38, resetsAt: clock.now() + 86_400_000 } }
+  on('state.get', ($, e, next) =>
+    e.plugin === 'limit-rings' && e.key === 'system' ? { value: { value: reading, version: 1 } }
+    : e.plugin === 'limit-rings' && e.key === 'limits' ? { value: { value: weekOnly, version: 1 } }
+    : next(e))
+  const ui = await $.ui.mount({
+    plugin: 'limit-rings',
+    surface: 'desktop',
+    component: 'AbovePrompt',
+    props: {
+      hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 120,
+      scroll: { offset: 0, bodyRows: 19 }, view: {},
+    },
+  })
+  expect(await ui.find({ type: 'Text', text: /CPU 23%/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /GPU 76% · 4 GB/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Memory: available 19 GB/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /GPU queue: running 2 · waiting 1/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Week/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /5 hours/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /no data/ })).toBeUndefined()
   await ui.unmount()
 })

@@ -226,5 +226,47 @@ check("decision state file", parseStateFile(Data(#"{"session_id":"c","state":"de
 check("decision line ru", attentionLine(decided[0], now: now, lang: .ru), "S2 · ждёт решения · 1 мин")
 check("decision line en", attentionLine(decided[0], now: now, lang: .en), "S2 · needs your decision · 1 min")
 
+
+// CPU, GPU, queue, available memory
+check("cpu percent", cpuPercent(previous: CPUTicks(busy: 100, total: 1000), current: CPUTicks(busy: 350, total: 2000)), 25.0)
+check("cpu percent first sample", cpuPercent(previous: nil, current: CPUTicks(busy: 1, total: 2)), nil)
+check("cpu percent no time passed", cpuPercent(previous: CPUTicks(busy: 1, total: 2), current: CPUTicks(busy: 1, total: 2)), nil)
+check("load levels", [10.0, 60, 85].map(loadLevel), [.ok, .warn, .danger])
+check("load ring", loadRing(76), .normal(fraction: 0.76, level: .warn, label: "76"))
+check("load ring full", loadRing(100), .normal(fraction: 1, level: .danger, label: "99"))
+check("load ring missing", loadRing(nil), .empty)
+check("cpu line", cpuLine(23.4, lang: .ru), "CPU: 23%")
+check("gpu line ru", gpuLine(GPUReading(utilization: 76, inUse: 4 * gib64, allocated: 6_982_451_200), lang: .ru),
+      "GPU: 76% · держит 4 ГБ · выделено 6,5 ГБ")
+check("gpu line missing", gpuLine(nil, lang: .en), "GPU: no data")
+check("queue line", queueLine(QueueReading(running: 2, waiting: 2, runningGB: 22, budgetGB: 30), lang: .ru),
+      "Очередь GPU: идут 2 (22 из 30 ГБ) · ждут 2")
+check("queue line empty", queueLine(QueueReading(running: 0, waiting: 0, runningGB: 0, budgetGB: 30), lang: .ru), nil)
+var withAvailable = mem(used: 42)
+withAvailable.available = 19 * gib64
+check("memory line available", memoryLine(withAvailable, lang: .ru),
+      "Память: доступно 19 из 48 ГБ · давление: норма")
+check("memory detail available", memoryDetailLine(withAvailable, lang: .ru),
+      "в Мониторинге занято 42 ГБ · сжато 20 ГБ · своп 0 ГБ")
+check("memory ring by macOS estimate", memoryRing(withAvailable), .normal(fraction: 29.0 / 48, level: .ok, label: "60"))
+check("system json cpu gpu queue", systemJSON(memory: nil, disk: nil, top: [], cpu: 23.4,
+                                              gpu: GPUReading(utilization: 90, inUse: 4, allocated: 7),
+                                              queue: QueueReading(running: 1, waiting: 0, runningGB: 18, budgetGB: 30)),
+      #"{"cpu":{"level":"ok","percent":23},"gpu":{"allocated":7,"in_use":4,"level":"danger","utilization":90},"queue":{"budget_gb":30,"running":1,"running_gb":18,"waiting":0},"top":[]}"#)
+check("system json available", systemJSON(memory: withAvailable, disk: nil, top: []).contains(#""available":20401094656"#), true)
+
+check("all rings by default", shownRings(stored: nil), [.cpu, .gpu, .memory, .disk])
+check("stored rings in menu bar order", shownRings(stored: ["disk", "cpu", "odd"]), [.cpu, .disk])
+check("empty choice shows all", shownRings(stored: []), SystemRing.allCases)
+check("toggle off", toggled(.gpu, in: [.cpu, .gpu, .memory]), [.cpu, .memory])
+check("toggle on keeps order", toggled(.gpu, in: [.cpu, .disk]), [.cpu, .gpu, .disk])
+check("last ring stays", toggled(.memory, in: [.memory]), [.memory])
+check("ring names", SystemRing.allCases.map { ringName($0, lang: .ru) }, ["CPU", "GPU", "Память", "Диск"])
+
+// A plan without the 5-hour limit
+let weekOnly = Snapshot(updatedAt: now, fiveHour: nil, sevenDay: LimitWindow(usedPercentage: 38, resetsAt: now + 3600))
+check("week only hides 5 hours", hasFiveHour(weekOnly), false)
+check("no reading keeps both", hasFiveHour(nil), true)
+
 print(failures == 0 ? "\nall passed" : "\n\(failures) failed")
 exit(failures == 0 ? 0 : 1)
