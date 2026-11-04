@@ -28,7 +28,7 @@ export type System = {
   top: SystemApp[]
 }
 
-export type AttentionState = 'permission' | 'question' | 'decision' | 'done'
+export type AttentionState = 'working' | 'permission' | 'question' | 'decision' | 'done'
 export type AttentionSession = {
   id: string
   cliId: string

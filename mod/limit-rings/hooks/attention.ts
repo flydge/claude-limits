@@ -6,7 +6,7 @@
 import type { Attention, AttentionSession, AttentionState } from '../types'
 import { COLORS, type Lang } from './limits'
 
-export type SessionState = 'working' | AttentionState | 'ended'
+export type SessionState = AttentionState | 'ended'
 
 export const QUESTION_TOOLS: readonly string[] = ['AskUserQuestion', 'ExitPlanMode']
 // The Claude app's own tools: the next-step box that ends a turn, and a proposed session.
@@ -14,24 +14,30 @@ export const WRAP_UP = 'mcp__ccd_turn__wrap_up'
 export const START_SESSION = 'mcp__ccd_session__start_session'
 export const ATTENTION_POLL_MS = 2_000
 export const ATTENTION_STALE_MS = 10_000
-export const MAX_ROWS = 3
+export const MAX_ROWS = 4
 const TITLE_MAX = 60
+/** A title in one of the band's two columns. */
+export const COLUMN_TITLE_MAX = 42
 
 // The state words are the dots' alt text: the band shows a state by its color alone.
 export const ATTENTION_TEXT = {
   en: {
     permission: 'needs permission', question: 'has a question', decision: 'needs your decision', done: 'done',
-    untitled: 'Untitled session',
+    working: 'working', untitled: 'Untitled session',
     header: (n: number) => `${n} waiting for you`,
+    waitingHeader: (n: number) => `Waiting ${n}`,
+    workingHeader: (n: number) => `Working ${n}`,
     more: (n: number) => `${n} more`,
-    minutes: (m: number) => `${m} min`,
+    minutes: (m: number) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`),
   },
   ru: {
     permission: 'нужно разрешение', question: 'вопрос', decision: 'ждёт решения', done: 'готово',
-    untitled: 'Сессия без названия',
+    working: 'в работе', untitled: 'Сессия без названия',
     header: (n: number) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? 'ждёт' : 'ждут'} ответа`,
+    waitingHeader: (n: number) => `Ждут ${n}`,
+    workingHeader: (n: number) => `В работе ${n}`,
     more: (n: number) => `ещё ${n}`,
-    minutes: (m: number) => `${m} мин`,
+    minutes: (m: number) => (m < 60 ? `${m} мин` : `${Math.floor(m / 60)} ч${m % 60 ? ` ${m % 60} мин` : ''}`),
   },
 } as const
 
@@ -109,7 +115,7 @@ export function stateFileText(sessionId: string, t: Tracker): string {
 }
 
 const LINK = /^claude:\/\/claude\.ai\/epitaxy\/local_[0-9a-f-]+$/
-const STATES: readonly string[] = ['permission', 'question', 'decision', 'done']
+const STATES: readonly string[] = ['permission', 'question', 'decision', 'done', 'working']
 
 // Only a link into the Claude app is kept: the band hands it to `open`.
 export function parseAttention(text: string, now: number): Attention | null {
@@ -135,26 +141,34 @@ export function parseAttention(text: string, now: number): Attention | null {
 export const sameSessions = (a: Attention | null, b: Attention | null) =>
   JSON.stringify(a?.sessions ?? []) === JSON.stringify(b?.sessions ?? [])
 
-/** The sessions the band shows: all but its own, the first `max` as rows, the rest counted. */
+// A column of at most `max` rows: all its sessions when they fit, else one row less and a count.
+function column(sessions: readonly AttentionSession[], max: number) {
+  const shown = sessions.length <= max ? sessions : sessions.slice(0, Math.max(0, max - 1))
+  return { shown: [...shown], hidden: sessions.length - shown.length }
+}
+
+/** The sessions waiting on the person, all but the band's own, in the app's order. */
 export function bandSessions(a: Attention | null, ownId: string, max = MAX_ROWS) {
-  const others = (a?.sessions ?? []).filter(s => s.cliId !== ownId)
-  return {
-    shown: others.slice(0, max),
-    hidden: Math.max(0, others.length - max),
-    isBlocking: others.some(s => s.state !== 'done'),
-  }
+  const others = (a?.sessions ?? []).filter(s => s.cliId !== ownId && s.state !== 'working')
+  return { ...column(others, max), total: others.length, isBlocking: others.some(s => s.state !== 'done') }
+}
+
+/** The other sessions at work now, the longest at work first, as the app lists them. */
+export function workingBand(a: Attention | null, ownId: string, max = MAX_ROWS) {
+  const others = (a?.sessions ?? []).filter(s => s.cliId !== ownId && s.state === 'working')
+  return { ...column(others, max), total: others.length }
 }
 
 export const minutesWaiting = (since: number, now: number) => Math.max(0, Math.floor((now - since) / 60_000))
 
-export function shortTitle(title: string, lang: Lang): string {
+export function shortTitle(title: string, lang: Lang, max = TITLE_MAX): string {
   const t = title.trim()
   if (!t) return ATTENTION_TEXT[lang].untitled
-  return t.length > TITLE_MAX ? t.slice(0, TITLE_MAX - 1).trimEnd() + '…' : t
+  return t.length > max ? t.slice(0, max - 1).trimEnd() + '…' : t
 }
 
 export function stateColor(state: AttentionState): string {
-  return state === 'done' ? COLORS.ok : COLORS.warn
+  return state === 'done' ? COLORS.ok : state === 'working' ? COLORS.work : COLORS.warn
 }
 
 export function dotSvg(color: string): string {

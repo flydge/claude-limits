@@ -27,6 +27,8 @@ struct AppSession: Equatable {
     let title: String
     let isArchived: Bool
     let lastFocusedAt: TimeInterval
+    /// The app's last sign of the session doing anything, in seconds; 0 when the file has none.
+    var lastActivityAt: TimeInterval = 0
 }
 
 struct WaitingSession: Equatable {
@@ -59,7 +61,8 @@ func parseAppSession(_ data: Data) -> AppSession? {
           let cliId = object["cliSessionId"] as? String, !cliId.isEmpty else { return nil }
     return AppSession(id: id, cliId: cliId, title: object["title"] as? String ?? "",
                       isArchived: object["isArchived"] as? Bool ?? false,
-                      lastFocusedAt: (object["lastFocusedAt"] as? Double ?? 0) / 1000)
+                      lastFocusedAt: (object["lastFocusedAt"] as? Double ?? 0) / 1000,
+                      lastActivityAt: (object["lastActivityAt"] as? Double ?? 0) / 1000)
 }
 
 /// The sessions to show. A session shows while it waits for permission, an answer, a decision
@@ -68,10 +71,7 @@ func parseAppSession(_ data: Data) -> AppSession? {
 /// once the session was opened after it, or while it is the one on screen in a frontmost
 /// Claude app. Blocking sessions first, then finished ones; the longest waiting first.
 func waitingSessions(states: [SessionStateFile], apps: [AppSession], claudeIsFrontmost: Bool) -> [WaitingSession] {
-    var byCli: [String: AppSession] = [:]
-    for app in apps where byCli[app.cliId].map({ app.lastFocusedAt > $0.lastFocusedAt }) ?? true {
-        byCli[app.cliId] = app
-    }
+    let byCli = latestByCli(apps)
     let onScreen = apps.max { $0.lastFocusedAt < $1.lastFocusedAt }?.id
     return states.compactMap { file -> WaitingSession? in
         guard file.state.isBlocking || file.state == .done,
@@ -87,6 +87,31 @@ func waitingSessions(states: [SessionStateFile], apps: [AppSession], claudeIsFro
         if $0.since != $1.since { return $0.since < $1.since }
         return $0.title < $1.title
     }
+}
+
+/// One app session per CLI session: the one focused last.
+private func latestByCli(_ apps: [AppSession]) -> [String: AppSession] {
+    var byCli: [String: AppSession] = [:]
+    for app in apps where byCli[app.cliId].map({ app.lastFocusedAt > $0.lastFocusedAt }) ?? true {
+        byCli[app.cliId] = app
+    }
+    return byCli
+}
+
+/// A `working` file older than this, with no activity in the app since, is a session that died
+/// mid-turn (the app quit or crashed before `session.end`), not one still at work.
+let workingStaleAfter: TimeInterval = 7200
+
+/// Sessions of the Claude app at work now, for the band's second column; never in the bell.
+/// The longest at work first.
+func workingSessions(states: [SessionStateFile], apps: [AppSession], now: TimeInterval) -> [WaitingSession] {
+    let byCli = latestByCli(apps)
+    return states.compactMap { file -> WaitingSession? in
+        guard file.state == .working, let app = byCli[file.cliId], !app.isArchived,
+              now - max(file.since, app.lastActivityAt) < workingStaleAfter else { return nil }
+        return WaitingSession(id: app.id, cliId: file.cliId, title: app.title, state: .working, since: file.since)
+    }
+    .sorted { $0.since != $1.since ? $0.since < $1.since : $0.title < $1.title }
 }
 
 /// What the bell shows: nothing when no session waits; orange while one is blocked, green

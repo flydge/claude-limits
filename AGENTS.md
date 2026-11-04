@@ -12,8 +12,8 @@ few lines at the end.
   two rings in the macOS menu bar, started at login, beside them memory and disk rings, and a bell
   with the number of Claude app sessions waiting on the user, shown only while one waits.
 - The Claude Code plugin `limit-rings@flydge` from the marketplace `flydge/claude-limits`:
-  rings above the prompt in the Claude desktop app's Code tab, and buttons that open the other
-  sessions waiting on the user.
+  one row of rings above the prompt in the Claude desktop app's Code tab, and above it two columns
+  with the other sessions at work and those waiting on the user, each title a link that opens it.
 
 Nothing makes network calls or reads credentials; all three read the limits Claude Code
 itself reports, and the bell reads the titles the Claude app keeps for its sessions. The limits
@@ -87,7 +87,7 @@ Claude app (Code tab)  --$.session---> mod/limit-rings               --> rings a
                 both write ~/.claude/limits.json --> menubar/ (ClaudeLimits.app) --> menu bar rings
 ClaudeLimits.app --every 5 s--> ~/.claude/system.json --> mod/limit-rings --> CPU, GPU, memory and disk row
 mod/limit-rings (each session) --> ~/.claude/attention/<id>.json --> ClaudeLimits.app --> bell
-ClaudeLimits.app --every 2 s--> ~/.claude/attention.json --> mod/limit-rings --> waiting-session buttons
+ClaudeLimits.app --every 2 s--> ~/.claude/attention.json --> mod/limit-rings --> working and waiting columns
 ```
 
 - The memory and disk item (`SystemCore.swift` logic, `SystemProbe.swift` kernel reads, `SystemItem.swift`
@@ -113,10 +113,17 @@ ClaudeLimits.app --every 2 s--> ~/.claude/attention.json --> mod/limit-rings -->
   `lastFocusedAt`), keeps waiting sessions the app knows and has not archived (terminal sessions drop
   out), hides a `done` opened after it finished or on screen in a frontmost Claude app, puts the orange ones
   (`permission`, `question`, `decision`) first, the longest waiting first, and every 2 s writes `~/.claude/attention.json` (`attentionJSON`:
-  `updated_at`, `sessions` with `id`, `cli_id`, `title`, `state`, `since`, `link`). A link is
+  `updated_at`, `sessions` with `id`, `cli_id`, `title`, `state`, `since`, `link`). After the waiting ones the
+  file lists the sessions at work (`workingSessions`, state `working`, the longest at work first): known to the
+  app, not archived, and dropped once neither the state file nor the app's `lastActivityAt` moved for 2 h
+  (`workingStaleAfter`: a session that died mid-turn). They never count in the bell or its reminders. A link is
   `claude://claude.ai/epitaxy/<local_ id>`; nothing else is opened. One notification per waiting spell
   after 5 min (`reminderAfter`), none for a spell that passed it before the app started. The band draws
-  the other sessions, at most 3 and `+N`, and runs `ClaudeLimits --attention-json` itself only when the
+  the other sessions in two columns, at work on the left and waiting on the right, at most 4 rows each (a full
+  column gives its last row to `ещё N`), and below them one row of rings against the prompt: the limits with
+  their reset time (`5ч 03:10`, `нед пт 10:00`), then CPU and GPU with the value inside the ring
+  alone, RAM and SSD with what is free beside it (`RAM 18,7 ГБ`); a ring’s details are a hidden row above it that the pointer on the ring reveals (`hover` scope),
+  and warnings get rows of their own only while they hold. The band runs `ClaudeLimits --attention-json` itself only when the
   file is older than 10 s, in desktop sessions, at most every 10 s. `ClaudeLimits --attention` prints the menu.
 - Data: only what Claude Code reports (`rate_limits.five_hour|seven_day` on the status
   line's stdin; `$.session.usage()` and `session.measure` in the mod). Never add network
@@ -142,4 +149,3 @@ All tests must pass before a commit (CI runs the same on macOS):
 
 ```bash
 bash statusline/test/run.sh && bash menubar/test.sh && claude plugin test mod/limit-rings && bash tests/install.test.sh
-```

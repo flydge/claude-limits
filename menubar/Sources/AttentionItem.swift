@@ -69,6 +69,14 @@ enum AttentionFiles {
         waitingSessions(states: readStates(), apps: cache.sessions(), claudeIsFrontmost: claudeIsFrontmost())
     }
 
+    /// What `attention.json` lists: the waiting sessions, then those at work.
+    static func listed(cache: AppSessionCache = AppSessionCache()) -> [WaitingSession] {
+        let states = readStates()
+        let apps = cache.sessions()
+        return waitingSessions(states: states, apps: apps, claudeIsFrontmost: claudeIsFrontmost())
+            + workingSessions(states: states, apps: apps, now: Date().timeIntervalSince1970)
+    }
+
     static func open(_ link: String) {
         guard link.hasPrefix("claude://claude.ai/epitaxy/local_"), let url = URL(string: link) else { return }
         NSWorkspace.shared.open(url)
@@ -113,9 +121,10 @@ final class AttentionItem: NSObject, NSMenuDelegate, UNUserNotificationCenterDel
 
     private func refresh() {
         let now = Date().timeIntervalSince1970
-        sessions = waitingSessions(states: AttentionFiles.readStates(), apps: cache.sessions(),
-                                   claudeIsFrontmost: AttentionFiles.claudeIsFrontmost())
-        let json = attentionJSON(sessions, updatedAt: now)
+        let states = AttentionFiles.readStates()
+        let apps = cache.sessions()
+        sessions = waitingSessions(states: states, apps: apps, claudeIsFrontmost: AttentionFiles.claudeIsFrontmost())
+        let json = attentionJSON(sessions + workingSessions(states: states, apps: apps, now: now), updatedAt: now)
         try? FileManager.default.createDirectory(at: AttentionFiles.listFile.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
         try? Data((json + "\n").utf8).write(to: AttentionFiles.listFile, options: .atomic)

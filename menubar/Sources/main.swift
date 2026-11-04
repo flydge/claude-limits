@@ -18,7 +18,7 @@ if arguments.count == 2, arguments[1] == "--system-json" {
 }
 // Sessions waiting on the person as JSON for the desktop mod:  ClaudeLimits --attention-json
 if arguments.count == 2, arguments[1] == "--attention-json" {
-    print(attentionJSON(AttentionFiles.current(), updatedAt: Date().timeIntervalSince1970))
+    print(attentionJSON(AttentionFiles.listed(), updatedAt: Date().timeIntervalSince1970))
     exit(0)
 }
 // Prints what the bell's menu would show:  ClaudeLimits --attention

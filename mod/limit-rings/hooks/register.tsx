@@ -1,14 +1,14 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Attention, LimitWindow, Limits, System } from '../types'
+import type { Attention, AttentionSession, LimitWindow, Limits, System } from '../types'
 import {
   ATTENTION_POLL_MS,
   ATTENTION_STALE_MS,
   ATTENTION_TEXT,
+  COLUMN_TITLE_MAX,
   asksOf,
   bandSessions,
-  bellSvg,
   dotSvg,
   isOpenableLink,
   markdownText,
@@ -21,6 +21,7 @@ import {
   stateColor,
   stateFileText,
   type AttentionEvent,
+  workingBand,
   type Tracker,
 } from './attention'
 import {
@@ -32,19 +33,20 @@ import {
   resolveLang,
   ringSvg,
   toLimits,
+  windowCaption,
   windowText,
   type Lang,
   type RateLimitLike,
 } from './limits'
-import { STALE_MS, SYSTEM_POLL_MS, memoryUsed, parseSystem, systemTexts, usedRingSvg } from './system'
+import { STALE_MS, SYSTEM_POLL_MS, SYSTEM_TEXT, memoryUsed, parseSystem, systemTexts, usedRingSvg } from './system'
 
 // Rings with the 5-hour and weekly limits above the prompt in the desktop app.
 // The terminal already has the status line, so the band draws on `desktop` only.
 // Each reading is also saved to ~/.claude/limits.json for the menu bar app.
-// Below them a row with CPU, GPU, memory and disk, read every 5 s from ~/.claude/system.json
-// that the menu bar app writes (the details and top apps are in the menu bar app's menu).
-// Above them, buttons for the other sessions waiting on the person, read every 2 s from
-// ~/.claude/attention.json; each session's own state goes to ~/.claude/attention/<id>.json.
+// Beside them CPU, GPU, memory and disk, read every 5 s from ~/.claude/system.json that the
+// menu bar app writes, all in one row against the prompt (the top apps are in the app's menu).
+// Above it two columns, the other sessions at work and those waiting on the person, read every
+// 2 s from ~/.claude/attention.json; each session's own state goes to ~/.claude/attention/<id>.json.
 
 const limits = atom({ plugin: 'limit-rings', key: 'limits' } as const, null as Limits | null)
 const minute = atom({ plugin: 'limit-rings', key: 'minute' } as const, 0)
@@ -214,121 +216,131 @@ export const register: Register = on => {
     if (e.surface !== 'desktop' || e.props.hasSurvey) return next(e)
     const reading = await read($, limits)
     const sys = await read($, system)
-    const waiting = bandSessions(await read($, attention), await $.session.id().catch(() => ''))
+    const listed = await read($, attention)
+    const ownId = await $.session.id().catch(() => '')
+    const waiting = bandSessions(listed, ownId)
+    const working = workingBand(listed, ownId)
     await read($, minute)
-    if (!reading && !sys && waiting.shown.length === 0) return next(e)
+    if (!reading && !sys && waiting.total === 0 && working.total === 0) return next(e)
 
     const now = await $.clock.now()
     const { Box, Markdown, Svg, Text } = $.ui.resolve(e)
+    const a = ATTENTION_TEXT[lang]
 
-    // A heading with the count, then one row per session: a dot whose color is its state,
-    // the title as a link that opens it, and how long it has waited. Links, not Buttons, as the
-    // desktop draws a Button as a grey native button; and https ones it answers itself, as it
-    // draws any other link as plain text.
+    // Two columns side by side, at work on the left and waiting on the right, each a heading with
+    // its count and a row per session: its title as a link that opens it, and how long it has been
+    // so. Links, not Buttons, as the desktop draws a Button as a grey native button; and https ones
+    // it answers itself, as it draws any other link as plain text. The columns keep their places
+    // while one is empty, so the person finds each where it was.
     const rows = []
-    if (waiting.shown.length > 0) {
-      const a = ATTENTION_TEXT[lang]
-      const total = waiting.shown.length + waiting.hidden
-      const list = waiting.shown.map(s => (
-        <Box key={`attention-${s.id}`} flexDirection="row" alignItems="center" justifyContent="space-between" width="100%">
-          <Box flexDirection="row" alignItems="center" columnGap="sm">
-            <Svg source={dotSvg(stateColor(s.state))} alt={a[s.state]} width={10} height={10} />
-            <Markdown key={`attention-open-${s.id}`} text={`[${markdownText(shortTitle(s.title, lang))}](${openHref(s)})`}
-              onLinkPress={() => openSession($, s.link)} pressableLinks={[openHref(s)]} />
-          </Box>
-          <Text size="footnote" dimColor>{a.minutes(minutesWaiting(s.since, now))}</Text>
+    const sessionRow = (prefix: string, s: AttentionSession, dot: boolean) => (
+      <Box key={`${prefix}-${s.id}`} flexDirection="row" alignItems="center" justifyContent="space-between" columnGap="sm"
+        width="100%">
+        <Box flexDirection="row" alignItems="center" columnGap="sm" flexShrink={1} minWidth={0}>
+          {dot ? <Svg source={dotSvg(stateColor(s.state))} alt={a[s.state]} width={8} height={8} /> : null}
+          <Markdown key={`${prefix}-open-${s.id}`}
+            text={`[${markdownText(shortTitle(s.title, lang, COLUMN_TITLE_MAX))}](${openHref(s)})`}
+            onLinkPress={() => openSession($, s.link)} pressableLinks={[openHref(s)]} />
         </Box>
-      ))
-      if (waiting.hidden > 0) list.push(<Text key="attention-more" size="footnote" dimColor>{a.more(waiting.hidden)}</Text>)
+        <Text size="footnote" dimColor>{a.minutes(minutesWaiting(s.since, now))}</Text>
+      </Box>
+    )
+    const sessionColumn = (key: string, color: string, header: string, list: AttentionSession[], hidden: number,
+      prefix: string, dots: boolean) => (
+      <Box key={key} flexDirection="column" rowGap="xs" width="50%" flexShrink={1} minWidth={0}>
+        <Box flexDirection="row" alignItems="center" columnGap="sm">
+          <Svg source={dotSvg(color)} alt={header} width={8} height={8} />
+          <Text size="footnote" dimColor>{header}</Text>
+        </Box>
+        {list.map(s => sessionRow(prefix, s, dots))}
+        {hidden > 0 ? <Text key={`${prefix}-more`} size="footnote" dimColor>{a.more(hidden)}</Text> : null}
+      </Box>
+    )
+    if (waiting.total > 0 || working.total > 0) {
       rows.push(
-        <Box key="attention" flexDirection="column" rowGap="xs">
-          <Box flexDirection="row" alignItems="center" columnGap="sm">
-            <Svg source={bellSvg(waiting.isBlocking ? COLORS.warn : COLORS.ok)} alt={a.header(total)} width={14} height={14} />
-            <Text size="footnote" weight="medium">{a.header(total)}</Text>
-          </Box>
-          <Box flexDirection="column" rowGap="xs" paddingLeft="lg">
-            {list}
-          </Box>
+        <Box key="sessions" flexDirection="row" alignItems="flex-start" columnGap="lg" width="100%">
+          {working.total > 0
+            ? sessionColumn('working', COLORS.work, a.workingHeader(working.total), working.shown, working.hidden,
+              'working', false)
+            : <Box key="working" width="50%" />}
+          {waiting.total > 0
+            ? sessionColumn('attention', waiting.isBlocking ? COLORS.warn : COLORS.ok, a.waitingHeader(waiting.total),
+              waiting.shown, waiting.hidden, 'attention', true)
+            : <Box key="attention" width="50%" />}
         </Box>,
       )
     }
 
-    const item = (key: string, title: string, w: LimitWindow | undefined, lengthMs: number) => {
-      const text = windowText(w, lengthMs, now, lang)
-      const percent = w ? `${Math.round(w.percentUsed)}%` : TEXT[lang].noData
-      const parts = [
-        <Svg source={ringSvg(w, now)} alt={`${title}: ${percent}`} width={20} height={20} />,
-        <Text size="footnote"> {title}</Text>,
-        <Text size="footnote" dimColor> · {text.detail}</Text>,
-      ]
-      if (text.warning) parts.push(<Text size="footnote" color="warning"> · {text.warning}</Text>)
-      return (
-        <Box key={key} flexDirection="row" alignItems="center">
-          {parts}
-        </Box>
+    // The bottom row, against the prompt: a ring per reading with its value inside and a short caption,
+    // as in the menu bar. Each ring's details are a row above it that the pointer on the ring reveals;
+    // warnings show in their own rows above it only while they hold.
+    const warnings: string[] = []
+    const details: JSX.Element[] = []
+    const stats: JSX.Element[] = []
+    const ring = (key: string, svg: string, alt: string, caption: string, detail: string) => {
+      const scope = `limit-rings-${key}`
+      stats.push(
+        <Box key={`ring-${key}`} flexDirection="row" alignItems="center" columnGap="xs" hover={{ scope }}>
+          <Svg source={svg} alt={alt} width={18} height={18} />
+          <Text size="footnote" dimColor>{caption}</Text>
+        </Box>,
+      )
+      details.push(
+        <Box key={`detail-${key}`} display="none" hover={{ scope, display: 'flex' }}>
+          <Text size="footnote" dimColor>{detail}</Text>
+        </Box>,
       )
     }
 
     // Only the windows the plan reports: a plan without the 5-hour limit gets no empty slot for it.
     if (reading) {
-      const windows = []
-      if (reading.fiveHour) windows.push(item('five-hour', TEXT[lang].fiveHours, reading.fiveHour, FIVE_HOUR_MS))
-      if (reading.sevenDay) windows.push(item('seven-day', TEXT[lang].week, reading.sevenDay, SEVEN_DAY_MS))
-      rows.push(
-        <Box key="limits" flexDirection="row" alignItems="center" columnGap="lg">
-          {windows}
-        </Box>,
-      )
+      const windows: [string, string, string, LimitWindow | undefined, number][] = []
+      if (reading.fiveHour) windows.push(['five-hour', TEXT[lang].fiveHours, TEXT[lang].fiveHoursShort, reading.fiveHour, FIVE_HOUR_MS])
+      if (reading.sevenDay) windows.push(['seven-day', TEXT[lang].week, TEXT[lang].weekShort, reading.sevenDay, SEVEN_DAY_MS])
+      for (const [key, title, short, w, lengthMs] of windows) {
+        const text = windowText(w, lengthMs, now, lang)
+        const percent = w ? `${Math.round(w.percentUsed)}%` : TEXT[lang].noData
+        ring(key, ringSvg(w, now), `${title}: ${percent}`, windowCaption(w, short, now, lang),
+          `${title}: ${percent} · ${text.detail}${text.warning ? ` · ${text.warning}` : ''}`)
+        if (text.warning) warnings.push(`${title}: ${text.warning}`)
+      }
     }
+    let notes: string[] = []
     if (sys) {
+      const t = SYSTEM_TEXT[lang]
       const texts = systemTexts(sys, lang)
       const stale = now - sys.measuredAt > STALE_MS
-      const parts = []
+      if (reading && stats.length > 0) stats.push(<Text key="divider" size="footnote" dimColor>|</Text>)
       if (sys.cpu && texts.cpu) {
-        parts.push(
-          <Box key="cpu" flexDirection="row" alignItems="center">
-            <Svg source={usedRingSvg(sys.cpu.percent, 100, sys.cpu.level, stale)} alt={texts.cpu} width={20} height={20} />
-            <Text size="footnote"> {texts.cpu}</Text>
-          </Box>,
-        )
+        ring('cpu', usedRingSvg(sys.cpu.percent, 100, sys.cpu.level, stale), texts.cpu, t.cpuShort, texts.cpu)
       }
       if (sys.gpu && texts.gpu) {
-        parts.push(
-          <Box key="gpu" flexDirection="row" alignItems="center">
-            <Svg source={usedRingSvg(sys.gpu.utilization, 100, sys.gpu.level, stale)} alt={texts.gpu} width={20} height={20} />
-            <Text size="footnote"> {texts.gpu}</Text>
-          </Box>,
-        )
+        ring('gpu', usedRingSvg(sys.gpu.utilization, 100, sys.gpu.level, stale), texts.gpu, t.gpuShort,
+          texts.gpuDetail ?? texts.gpu)
       }
       if (sys.memory && texts.memory) {
-        parts.push(
-          <Box key="memory" flexDirection="row" alignItems="center">
-            <Svg source={usedRingSvg(memoryUsed(sys.memory), sys.memory.total, sys.memory.level, stale)}
-              alt={texts.memory} width={20} height={20} />
-            <Text size="footnote"> {texts.memory}</Text>
-          </Box>,
-        )
+        ring('memory', usedRingSvg(memoryUsed(sys.memory), sys.memory.total, sys.memory.level, stale), texts.memory,
+          texts.memoryCaption ?? t.memoryShort, texts.memoryDetail ?? texts.memory)
       }
       if (sys.disk && texts.disk) {
-        parts.push(
-          <Box key="disk" flexDirection="row" alignItems="center">
-            <Svg source={usedRingSvg(sys.disk.total - Math.min(sys.disk.available, sys.disk.total), sys.disk.total,
-              sys.disk.level, stale)} alt={texts.disk} width={20} height={20} />
-            <Text size="footnote"> {texts.disk}</Text>
-          </Box>,
-        )
+        ring('disk', usedRingSvg(sys.disk.total - Math.min(sys.disk.available, sys.disk.total), sys.disk.total,
+          sys.disk.level, stale), texts.disk, texts.diskCaption ?? t.diskShort, texts.diskDetail ?? texts.disk)
       }
+      if (!stale) notes = [...(texts.queue ? [texts.queue] : [])]
+      if (!stale) warnings.push(...texts.hints)
+    }
+
+    for (const [i, note] of notes.entries()) rows.push(<Text key={`note-${i}`} size="footnote" dimColor>{note}</Text>)
+    for (const [i, warning] of warnings.entries()) {
+      rows.push(<Text key={`hint-${i}`} size="footnote" color="warning">{warning}</Text>)
+    }
+    rows.push(...details)
+    if (stats.length > 0) {
       rows.push(
-        <Box key="system" flexDirection="row" alignItems="center" columnGap="lg" flexWrap="wrap">
-          {parts}
+        <Box key="stats" flexDirection="row" alignItems="center" columnGap="md" flexWrap="wrap">
+          {stats}
         </Box>,
       )
-      if (texts.queue && !stale) rows.push(<Text key="queue" size="footnote" dimColor>{texts.queue}</Text>)
-      if (!stale) {
-        for (const [i, hint] of texts.hints.entries()) {
-          rows.push(<Text key={`hint-${i}`} size="footnote" color="warning">{hint}</Text>)
-        }
-      }
     }
 
     return (

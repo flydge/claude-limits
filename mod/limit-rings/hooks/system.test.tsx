@@ -48,6 +48,8 @@ test('texts in both languages', () => {
   const ru = systemTexts(s, 'ru')
   expect(ru.memory).toBe('Память 88% · своп 28,5 ГБ')
   expect(ru.disk).toBe('Диск: свободно 19,2 ГБ')
+  expect(ru.memoryCaption).toBe('RAM 6 ГБ')
+  expect(ru.diskCaption).toBe('SSD 19,2 ГБ')
   expect(ru.memoryDetail).toBe('Память: занято 42 из 48 ГБ · сжато 20,9 ГБ · своп 28,5 ГБ · давление: высокое')
   expect(ru.diskDetail).toBe('Диск: свободно 19,2 из 995 ГБ')
   expect(ru.hints.length).toBe(2)
@@ -64,7 +66,7 @@ test('ring colour follows the level, grey when stale', () => {
   expect(usedRingSvg(42, 48, 'ok', true)).not.toContain(COLORS.ok)
 })
 
-test('the band shows memory, disk and the warnings, with no Details link', async ($, on) => {
+test('the band shows memory and disk as rings with their details on hover, and the warnings', async ($, on) => {
   const clock = mock.clock(on)
   const reading = { ...parseSystem(json, now)!, measuredAt: clock.now() }
   on('state.get', ($, e, next) =>
@@ -78,8 +80,12 @@ test('the band shows memory, disk and the warnings, with no Details link', async
       scroll: { offset: 0, bodyRows: 19 }, view: {},
     },
   })
+  expect(await ui.find({ type: 'Text', text: /^RAM 6 GB$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^SSD 19\.2 GB$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /swap 28\.5 GB/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /free 19\.2 GB/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Disk: free 19\.2 of 995 GB/ })).toBeDefined()
+  expect(await ui.find({ key: 'detail-memory' })).toBeDefined()
+  expect(await ui.find({ key: 'ring-disk' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /ChatGPT/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /memory is running out/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /disk almost full/ })).toBeDefined()
@@ -136,11 +142,16 @@ test('the band shows CPU, GPU and the queue; a plan without the 5-hour limit get
       scroll: { offset: 0, bodyRows: 19 }, view: {},
     },
   })
-  expect(await ui.find({ type: 'Text', text: /CPU 23%/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /GPU 76% · 4 GB/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /Memory: available 19 GB/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^CPU$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^CPU 23%$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^GPU$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /GPU: load 76% · holds 4 GB · allocated 6\.5 GB/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Memory: available 19 of 48 GB/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^RAM 19 GB$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /GPU queue: running 2 · waiting 1/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /Week/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^wk [A-Z][a-z]{2} \d\d:\d\d$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Week: 38% · resets / })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^\|$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /5 hours/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /no data/ })).toBeUndefined()
   await ui.unmount()

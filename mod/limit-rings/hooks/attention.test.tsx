@@ -6,6 +6,7 @@ import {
   ATTENTION_TEXT,
   asksOf,
   bandSessions,
+  workingBand,
   markdownText,
   minutesWaiting,
   nextState,
@@ -123,7 +124,7 @@ test('reads the gathered list and keeps only links into the Claude app', () => {
   })
   const a = parseAttention(text, t0 + 1000)
   expect(a?.measuredAt).toBe(t0)
-  expect(a?.sessions.map(s => s.cliId)).toEqual(['cli-1', 'cli-2', 'cli-6'])
+  expect(a?.sessions.map(s => s.cliId)).toEqual(['cli-1', 'cli-2', 'cli-6', 'cli-4'])
   expect(a?.sessions[0]).toEqual({
     id: 'local_1', cliId: 'cli-1', title: 'Session 1', state: 'permission', since: t0 - 1000, link: link(1),
   })
@@ -134,12 +135,26 @@ test('reads the gathered list and keeps only links into the Claude app', () => {
 
 const five: Attention = parseAttention(JSON.stringify({ updated_at: t0 / 1000, sessions: [1, 2, 3, 4, 5].map(n => entry(n)) }), t0)!
 
-test('the band leaves out its own session and counts what does not fit', () => {
-  const { shown, hidden, isBlocking } = bandSessions(five, 'cli-2')
-  expect(shown.map(s => s.cliId)).toEqual(['cli-1', 'cli-3', 'cli-4'])
-  expect(hidden).toBe(1)
-  expect(isBlocking).toBe(true)
-  expect(bandSessions(null, 'cli-1')).toEqual({ shown: [], hidden: 0, isBlocking: false })
+test('the band leaves out its own session; a full column gives its last row to a count', () => {
+  expect(bandSessions(five, 'cli-2')).toMatchObject({ hidden: 0, total: 4, isBlocking: true })
+  expect(bandSessions(five, 'cli-2').shown.map(s => s.cliId)).toEqual(['cli-1', 'cli-3', 'cli-4', 'cli-5'])
+  const { shown, hidden, total } = bandSessions(five, 'cli-other')
+  expect(shown.map(s => s.cliId)).toEqual(['cli-1', 'cli-2', 'cli-3'])
+  expect([hidden, total]).toEqual([2, 5])
+  expect(bandSessions(null, 'cli-1')).toEqual({ shown: [], hidden: 0, total: 0, isBlocking: false })
+})
+
+const mixed: Attention = parseAttention(JSON.stringify({
+  updated_at: t0 / 1000,
+  sessions: [entry(1), entry(2, 'done'), entry(3, 'working'), entry(4, 'working'), entry(5, 'working')],
+}), t0)!
+
+test('sessions at work are a column of their own, never counted as waiting', () => {
+  expect(bandSessions(mixed, 'cli-4').shown.map(s => s.cliId)).toEqual(['cli-1', 'cli-2'])
+  expect(workingBand(mixed, 'cli-4')).toMatchObject({ hidden: 0, total: 2 })
+  expect(workingBand(mixed, 'cli-4').shown.map(s => s.cliId)).toEqual(['cli-3', 'cli-5'])
+  expect(bandSessions(parseAttention(JSON.stringify({ sessions: [entry(3, 'done'), entry(4, 'working')] }), t0), 'x'))
+    .toMatchObject({ total: 1, isBlocking: false })
 })
 
 test('heading, minutes and the rest in both languages', () => {
@@ -148,6 +163,10 @@ test('heading, minutes and the rest in both languages', () => {
   expect(ATTENTION_TEXT.en.header(3)).toBe('3 waiting for you')
   expect(ATTENTION_TEXT.ru.more(2)).toBe('ещё 2')
   expect(ATTENTION_TEXT.en.minutes(4)).toBe('4 min')
+  expect(ATTENTION_TEXT.ru.minutes(65)).toBe('1 ч 5 мин')
+  expect(ATTENTION_TEXT.en.minutes(120)).toBe('2 h')
+  expect(ATTENTION_TEXT.ru.waitingHeader(5)).toBe('Ждут 5')
+  expect(ATTENTION_TEXT.ru.workingHeader(4)).toBe('В работе 4')
   expect(minutesWaiting(t0, t0 + 119_000)).toBe(1)
   expect(minutesWaiting(t0, t0 - 5000)).toBe(0)
 })
@@ -223,14 +242,42 @@ test('the band lists the other waiting sessions as links that open them', async 
       scroll: { offset: 0, bodyRows: 19 }, view: {},
     },
   })
-  expect((await ui.find({ type: 'Text', text: /waiting/ }))?.text).toBe('4 waiting for you')
+  expect((await ui.find({ type: 'Text', text: /Waiting/ }))?.text).toBe('Waiting 4')
+  expect(await ui.find({ type: 'Text', text: /Working/ })).toBeUndefined()
   const rows = await ui.findAll({ type: 'Markdown' })
-  expect(rows.map(r => r.key)).toEqual(['attention-open-local_1', 'attention-open-local_3', 'attention-open-local_4'])
+  expect(rows.map(r => r.key)).toEqual(
+    ['attention-open-local_1', 'attention-open-local_3', 'attention-open-local_4', 'attention-open-local_5'])
   expect((rows[1]?.props as { text: string }).text).toBe('[Session 3](https://limit-rings.invalid/open/local_3)')
   await ui.press({ key: 'attention-open-local_3', link: { href: 'https://limit-rings.invalid/open/local_3' } })
   expect(runs).toEqual([['open', link(3)]])
   expect(await ui.find({ type: 'Text', text: /done|permission/ })).toBeUndefined()
-  expect((await ui.find({ type: 'Text', text: /^1 more$/ }))?.text).toBe('1 more')
+  expect(await ui.find({ type: 'Text', text: /more$/ })).toBeUndefined()
   expect(await ui.findAll({ type: 'Button' })).toHaveLength(0)
+  await ui.unmount()
+})
+
+test('the band draws the sessions at work beside the waiting ones', async ($, on) => {
+  const clock = mock.clock(on)
+  on('session.id', () => ({ value: 'cli-own' }))
+  on('state.get', ($, e, next) =>
+    e.plugin === 'limit-rings' && e.key === 'attention'
+      ? { value: { value: { ...mixed, measuredAt: clock.now() }, version: 1 } }
+      : next(e))
+  const ui = await $.ui.mount({
+    plugin: 'limit-rings',
+    surface: 'desktop',
+    component: 'AbovePrompt',
+    props: {
+      hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 120,
+      scroll: { offset: 0, bodyRows: 19 }, view: {},
+    },
+  })
+  expect((await ui.find({ type: 'Text', text: /^Working/ }))?.text).toBe('Working 3')
+  expect((await ui.find({ type: 'Text', text: /^Waiting/ }))?.text).toBe('Waiting 2')
+  const rows = await ui.findAll({ type: 'Markdown' })
+  expect(rows.map(r => r.key)).toEqual([
+    'working-open-local_3', 'working-open-local_4', 'working-open-local_5',
+    'attention-open-local_1', 'attention-open-local_2',
+  ])
   await ui.unmount()
 })

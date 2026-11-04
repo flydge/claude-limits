@@ -10,6 +10,7 @@ export const STALE_MS = 30_000
 
 export const SYSTEM_TEXT = {
   en: {
+    cpuShort: 'CPU', gpuShort: 'GPU', memoryShort: 'RAM', diskShort: 'SSD',
     memory: 'Memory', disk: 'Disk', swap: 'swap', free: 'free', used: 'used', of: 'of', unit: 'GB',
     compressed: 'compressed', pressure: 'pressure', top: 'Top memory', more: 'Details', less: 'Hide',
     pressures: { normal: 'normal', warn: 'high', critical: 'critical' },
@@ -19,6 +20,7 @@ export const SYSTEM_TEXT = {
     gpuLoad: 'load', queue: 'GPU queue', running: 'running', waiting: 'waiting',
   },
   ru: {
+    cpuShort: 'CPU', gpuShort: 'GPU', memoryShort: 'RAM', diskShort: 'SSD',
     memory: 'Память', disk: 'Диск', swap: 'своп', free: 'свободно', used: 'занято', of: 'из', unit: 'ГБ',
     compressed: 'сжато', pressure: 'давление', top: 'Больше всего памяти', more: 'Подробнее', less: 'Скрыть',
     pressures: { normal: 'норма', warn: 'высокое', critical: 'критическое' },
@@ -108,6 +110,9 @@ export function memoryUsed(m: SystemMemory): number {
 }
 
 export type SystemTexts = {
+  /** The band's captions beside the RAM and SSD rings: what is free, `RAM 18,7 ГБ`. */
+  memoryCaption?: string
+  diskCaption?: string
   cpu?: string
   gpu?: string
   queue?: string
@@ -142,6 +147,7 @@ export function systemTexts(s: System, lang: Lang): SystemTexts {
       ? `${t.memory}: ${t.available} ${formatSize(m.available, 'GiB', lang)} ${t.unit}`
       : `${t.memory} ${percent}%`
     out.memory = `${head} · ${t.swap} ${formatSize(m.swapUsed, 'GiB', lang)} ${t.unit}`
+    out.memoryCaption = `${t.memoryShort} ${formatSize(m.total - Math.min(memoryUsed(m), m.total), 'GiB', lang)} ${t.unit}`
     out.memoryDetail =
       (m.available !== undefined
         ? `${t.memory}: ${t.available} ${formatSize(m.available, 'GiB', lang)} ${t.of} ${formatSize(m.total, 'GiB', lang)} ${t.unit}` +
@@ -155,6 +161,7 @@ export function systemTexts(s: System, lang: Lang): SystemTexts {
   if (s.disk) {
     const d = s.disk
     out.disk = `${t.disk}: ${t.free} ${formatSize(d.available, 'GB', lang)} ${t.unit}`
+    out.diskCaption = `${t.diskShort} ${formatSize(d.available, 'GB', lang)} ${t.unit}`
     out.diskDetail = `${t.disk}: ${t.free} ${formatSize(d.available, 'GB', lang)} ${t.of} ${formatSize(d.total, 'GB', lang)} ${t.unit}`
     if (d.level === 'danger') out.hints.push(t.diskHint)
   }

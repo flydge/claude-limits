@@ -15,10 +15,12 @@ export type Lang = 'en' | 'ru'
 export const TEXT = {
   en: {
     fiveHours: '5 hours', week: 'Week', resets: 'resets', wasReset: 'reset', noData: 'no data',
+    fiveHoursShort: '5h', weekShort: 'wk',
     runsOut: 'runs out ~', weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
   },
   ru: {
     fiveHours: '5 часов', week: 'Неделя', resets: 'сброс', wasReset: 'сброшен', noData: 'нет данных',
+    fiveHoursShort: '5ч', weekShort: 'нед',
     runsOut: 'кончится ~', weekdays: ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'],
   },
 } as const
@@ -30,7 +32,7 @@ export function resolveLang(override: string | undefined, appleLanguages: string
   return code.toLowerCase().startsWith('ru') ? 'ru' : 'en'
 }
 
-export const COLORS = { ok: '#34C759', warn: '#FF9500', danger: '#FF3B30', muted: '#8E8E93' }
+export const COLORS = { ok: '#34C759', warn: '#FF9500', danger: '#FF3B30', muted: '#8E8E93', work: '#007AFF' }
 
 export function toLimits(rateLimits: readonly RateLimitLike[], now: number): Limits | null {
   const pick = (kind: string): LimitWindow | undefined => {
@@ -107,6 +109,13 @@ export function forecastExhaustion(w: LimitWindow, lengthMs: number, now: number
 }
 
 export type WindowText = { detail: string; warning?: string }
+
+/** The ring's caption: the window's short name and when it resets, `5ч 03:10`, `нед пт 10:00`. */
+export function windowCaption(w: LimitWindow | undefined, short: string, now: number, lang: Lang): string {
+  if (!w) return `${short} –`
+  if (w.resetsAt <= now) return `${short} ${TEXT[lang].wasReset}`
+  return `${short} ${formatClock(w.resetsAt, now, lang)}`
+}
 
 export function windowText(w: LimitWindow | undefined, lengthMs: number, now: number, lang: Lang): WindowText {
   const text = TEXT[lang]

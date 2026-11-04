@@ -226,6 +226,24 @@ check("decision state file", parseStateFile(Data(#"{"session_id":"c","state":"de
 check("decision line ru", attentionLine(decided[0], now: now, lang: .ru), "S2 · ждёт решения · 1 мин")
 check("decision line en", attentionLine(decided[0], now: now, lang: .en), "S2 · needs your decision · 1 min")
 
+// Working sessions: the band's second column, never the bell.
+check("app session activity", parseAppSession(Data(#"{"sessionId":"local_a","cliSessionId":"cli-1","lastActivityAt":1760958000000}"#.utf8))?.lastActivityAt, now)
+var busy = apps
+busy.append(AppSession(id: "local_8", cliId: "cli-8", title: "S8", isArchived: false, lastFocusedAt: now - 9_000,
+                       lastActivityAt: now - 60))
+let working = workingSessions(states: [
+    state(3, .working, since: now - 30),
+    state(5, .working, since: now - 600),
+    state(4, .working, since: now - 60),        // archived in the app
+    state(7, .working, since: now - 60),        // a terminal session: no app file
+    state(1, .working, since: now - 7_300),     // died mid-turn: no activity for two hours
+    state(8, .working, since: now - 9_000),     // a long turn the app still sees active
+    state(2, .done, since: now - 60),
+], apps: busy, now: now)
+check("working order and filter", working.map(\.id), ["local_8", "local_5", "local_3"])
+check("working state", working.first?.state, .working)
+check("working json state", attentionJSON([working[2]]).contains(#""state":"working""#), true)
+
 
 // CPU, GPU, queue, available memory
 check("cpu percent", cpuPercent(previous: CPUTicks(busy: 100, total: 1000), current: CPUTicks(busy: 350, total: 2000)), 25.0)
