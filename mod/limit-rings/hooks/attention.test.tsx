@@ -87,6 +87,35 @@ test('a turn that put a choice to the person ends waiting for a decision', () =>
   expect(step(offered, { kind: 'tool.end', tool: 'mcp__ccd_session__start_session' }).state).toBe('working')
 })
 
+test('a main turn that stops with background work in flight stays at work', () => {
+  const later = (t: Tracker, ev: AttentionEvent) => nextState(t, ev, t0 + 9000)
+  // Stop heard before the turn's end.
+  const flagged = step(working, { kind: 'stop', backgroundTasks: 2 })
+  expect(flagged).toEqual({ state: 'working', since: t0, background: true })
+  expect(step(flagged, { kind: 'turn.complete', reason: 'answer' })).toEqual({ state: 'working', since: t0, background: true })
+  // Stop heard after the turn's end: done goes back to work.
+  const done = step(working, { kind: 'turn.complete', reason: 'answer' })
+  expect(done.state).toBe('done')
+  expect(later(done, { kind: 'stop', backgroundTasks: 1 })).toEqual({ state: 'working', since: t0 + 9000, background: true })
+  expect(later(done, { kind: 'stop', backgroundTasks: 0 })).toBe(done)
+  // The work wakes the main loop; its next turn with nothing left in flight ends done.
+  const woken = step(flagged, { kind: 'turn.start' })
+  expect(woken).toEqual({ state: 'working', since: t0 })
+  const clear = step(woken, { kind: 'stop', backgroundTasks: 0 })
+  expect(clear).toBe(woken)
+  expect(step(clear, { kind: 'turn.complete', reason: 'answer' }).state).toBe('done')
+  // A subagent's own turn ending changes nothing.
+  expect(step(flagged, { kind: 'turn.complete', reason: 'answer', agentId: 'a1' })).toBe(flagged)
+})
+
+test('a decision put to the person still waits while background work runs', () => {
+  const marked = step(working, { kind: 'tool.start', tool: 'mcp__ccd_turn__wrap_up', asks: 'decision' })
+  const flagged = step(marked, { kind: 'stop', backgroundTasks: 1 })
+  expect(step(flagged, { kind: 'turn.complete', reason: 'answer' }).state).toBe('decision')
+  const decided = step(marked, { kind: 'turn.complete', reason: 'answer' })
+  expect(step(decided, { kind: 'stop', backgroundTasks: 1 })).toBe(decided)
+})
+
 test('a session that ends is ended', () => {
   expect(step(working, { kind: 'session.end' }).state).toBe('ended')
 })
@@ -211,6 +240,18 @@ test('an offered session waits for an answer while its call runs', async ($, on)
   engine(on, writes)
   await $.tool.call({ tool: 'mcp__ccd_session__start_session', initiation: 'offer', title: 'Fix the bell' })
   expect(writes.map(w => JSON.parse(w.text).state)).toEqual(['question', 'working'])
+})
+
+test('Stop with background work in flight keeps the session at work in the state file', async ($, on) => {
+  const writes: { path: string; text: string }[] = []
+  engine(on, writes)
+  on('classic.Stop', () => ({}))
+  await $.classic.Stop({
+    stop_hook_active: false,
+    background_tasks: [{ id: 't1', type: 'subagent', status: 'running', description: 'Review' }],
+  })
+  await $.classic.Stop({ stop_hook_active: false, background_tasks: [] })
+  expect(writes.map(w => JSON.parse(w.text).state)).toEqual(['working'])
 })
 
 test('a question reaches the state file once', async ($, on) => {

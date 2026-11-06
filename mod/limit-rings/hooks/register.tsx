@@ -202,6 +202,12 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // The main loop's Stop lists the background work still in flight: subagents, shells, workflows.
+  on('classic.Stop', async ($, e, next) => {
+    await quietly(track($, { kind: 'stop', backgroundTasks: e.background_tasks?.length ?? 0 }))
+    return next(e)
+  })
+
   on('session.end', async ($, e, next) => {
     await quietly(track($, { kind: 'session.end' }))
     return next(e)

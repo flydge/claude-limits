@@ -44,7 +44,15 @@ export const ATTENTION_TEXT = {
 // The session's state as the hooks hear it. `waitingTool` is the tool a permission prompt
 // or a question is held on: its call ending is the person's answer. `awaitsDecision` marks a
 // turn that put a choice to the person: when it ends, it waits for a decision, not a look.
-export type Tracker = { state: SessionState; since: number; waitingTool?: string; awaitsDecision?: true }
+// `background` marks a main turn that stopped with background work still in flight
+// (subagents, shells, workflows): the session is still at work until that work wakes it.
+export type Tracker = {
+  state: SessionState
+  since: number
+  waitingTool?: string
+  awaitsDecision?: true
+  background?: true
+}
 
 /** What a tool call asks of the person: an answer while it runs, or a decision once the turn ends. */
 export type Asks = 'answer' | 'decision'
@@ -56,6 +64,7 @@ export type AttentionEvent =
   | { kind: 'tool.start'; tool: string; asks?: Asks }
   | { kind: 'tool.end'; tool: string }
   | { kind: 'turn.complete'; reason: string; agentId?: string }
+  | { kind: 'stop'; backgroundTasks: number }
   | { kind: 'session.end' }
 
 // A question tool, and a session offered for the person to start, hold the call for an answer;
@@ -77,15 +86,20 @@ export function asksOf(tool: string, input: Readonly<Record<string, unknown>>): 
 
 // A permission prompt or a question holds the person whichever loop raised it; a turn's start
 // and end count on the main loop only, as a subagent's turns end inside the main one.
+// A main turn that stops with background work in flight (the Stop hook's `background_tasks`)
+// stays at work rather than done, whichever of Stop and the turn's end is heard first; a
+// decision it put to the person still waits for them. The next main turn clears the mark.
 export function nextState(t: Tracker, ev: AttentionEvent, now: number): Tracker {
-  const to = (state: SessionState, waitingTool: string | undefined, awaitsDecision: boolean): Tracker =>
-    state === t.state && waitingTool === t.waitingTool && awaitsDecision === !!t.awaitsDecision
+  const to = (state: SessionState, waitingTool: string | undefined, awaitsDecision: boolean, background = false): Tracker =>
+    state === t.state && waitingTool === t.waitingTool && awaitsDecision === !!t.awaitsDecision &&
+    background === !!t.background
       ? t
       : {
           state,
           since: state === t.state ? t.since : now,
           ...(waitingTool ? { waitingTool } : {}),
           ...(awaitsDecision ? { awaitsDecision: true as const } : {}),
+          ...(background ? { background: true as const } : {}),
         }
   const marked = !!t.awaitsDecision
   const isWaiting = t.state === 'permission' || t.state === 'question'
@@ -95,16 +109,23 @@ export function nextState(t: Tracker, ev: AttentionEvent, now: number): Tracker 
     case 'prompt.submit':
       return to('working', undefined, false)
     case 'permission':
-      return to(QUESTION_TOOLS.includes(ev.tool) ? 'question' : 'permission', ev.tool, marked)
+      return to(QUESTION_TOOLS.includes(ev.tool) ? 'question' : 'permission', ev.tool, marked, !!t.background)
     case 'tool.start':
-      if (ev.asks === 'answer' || QUESTION_TOOLS.includes(ev.tool)) return to('question', ev.tool, marked)
-      return ev.asks === 'decision' ? to(t.state, t.waitingTool, true) : t
+      if (ev.asks === 'answer' || QUESTION_TOOLS.includes(ev.tool)) return to('question', ev.tool, marked, !!t.background)
+      return ev.asks === 'decision' ? to(t.state, t.waitingTool, true, !!t.background) : t
     case 'tool.end':
-      return isWaiting && t.waitingTool === ev.tool ? to('working', undefined, marked) : t
+      return isWaiting && t.waitingTool === ev.tool ? to('working', undefined, marked, !!t.background) : t
+    case 'stop': {
+      const inFlight = ev.backgroundTasks > 0
+      // Heard after the turn's end: a done turn with work in flight is back at work.
+      if (t.state === 'done') return inFlight ? to('working', undefined, false, true) : t
+      return t.state === 'working' ? to('working', t.waitingTool, marked, inFlight) : t
+    }
     case 'turn.complete':
       if (ev.agentId) return t
       if (ev.reason === 'aborted') return to('working', undefined, false)
-      return to(marked ? 'decision' : 'done', undefined, false)
+      if (marked) return to('decision', undefined, false)
+      return t.background ? to('working', undefined, false, true) : to('done', undefined, false)
     case 'session.end':
       return to('ended', undefined, false)
   }

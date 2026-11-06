@@ -107,7 +107,7 @@ ClaudeLimits.app --every 2 s--> ~/.claude/attention.json --> mod/limit-rings -->
   `AskUserQuestion` and `ExitPlanMode`, and while a session offered with `initiation: "offer"` waits), the
   waiting tool call ending is `working`, a main-loop turn's end is `decision` when the turn's next-step box
   (`mcp__ccd_turn__wrap_up`) had an `ask`, `actions` or `blocked`, or it proposed a task card
-  (`start_session` with `own_initiative`; `asksOf`), else `done`, unless aborted, `session.end` is `ended` (the app deletes that file: the mod API cannot). The app
+  (`start_session` with `own_initiative`; `asksOf`), else `done`, unless aborted, and `working` while the main loop's `classic.Stop` listed `background_tasks` (subagents, background shells, workflows still in flight: the next main turn, woken by that work, clears it), `session.end` is `ended` (the app deletes that file: the mod API cannot). The app
   reads those and, read-only, the Claude app's session files (`~/Library/Application Support/Claude/
   claude-code-sessions/*/*/local_*.json`: `sessionId`, `cliSessionId`, `title`, `isArchived`,
   `lastFocusedAt`), keeps waiting sessions the app knows and has not archived (terminal sessions drop
