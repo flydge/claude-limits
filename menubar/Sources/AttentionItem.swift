@@ -99,6 +99,7 @@ final class AttentionItem: NSObject, NSMenuDelegate, UNUserNotificationCenterDel
     }
 
     func start() {
+        statusItem.autosaveName = "claude-limits.attention"  // our own name, see AppDelegate
         menu.autoenablesItems = false
         menu.delegate = self
         statusItem.menu = menu
@@ -138,6 +139,7 @@ final class AttentionItem: NSObject, NSMenuDelegate, UNUserNotificationCenterDel
             return
         }
         button.image = RingIcon.bellImage(bell)
+        seedStatusItemPosition("claude-limits.attention")
         statusItem.isVisible = true
     }
 

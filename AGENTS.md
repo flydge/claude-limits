@@ -142,6 +142,14 @@ ClaudeLimits.app --every 2 s--> ~/.claude/attention.json --> mod/limit-rings -->
   in its `attention.ts`.
   `--lang` keeps the choice in `settings.json` `env` and in the launch agent.
 - Plugin names starting with `claude-` are reserved, hence `limit-rings`.
+- Menu bar item names and positions: the three items have names of their own (`claude-limits.limits`, `.system`,
+  `.attention`) because the default `Item-N` names are shared by every app and macOS keeps a position by name, so
+  a relaunch reshuffled the rings and one could land under the notch. `seedStatusItemPosition` (`AppDelegate.swift`)
+  writes `NSStatusItem Preferred Position <name>` when it is missing (a higher number is further left; the system's
+  own items use 93 to ~400) and never overwrites a ⌘-dragged one. AppKit drops the position of a hidden item, so the
+  bell seeds it again each time it is shown. To see where the items are, ask System Events for the `status menu`
+  elements of every process (`position`, `size`) and compare with `NSScreen.auxiliaryTopRightArea.minX`: an item
+  that starts left of it is under the notch.
 - Check icon changes without a screenshot:
   `bash menubar/build.sh && build/ClaudeLimits.app/Contents/MacOS/ClaudeLimits --preview build/preview.png`.
 

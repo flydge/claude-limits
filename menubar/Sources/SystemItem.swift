@@ -32,6 +32,8 @@ final class SystemItem: NSObject, NSMenuDelegate {
     }
 
     func start() {
+        seedStatusItemPosition("claude-limits.system")
+        statusItem.autosaveName = "claude-limits.system"  // our own name, see AppDelegate
         menu.autoenablesItems = false
         menu.delegate = self
         statusItem.menu = menu

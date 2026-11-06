@@ -3,6 +3,18 @@ import AppKit
 // Menu bar item: two rings from ~/.claude/limits.json, details in the menu.
 // Beside it, SystemItem shows memory and disk, and AttentionItem the sessions waiting on the person.
 
+/// macOS puts a status item that has no saved position at the far left of the menu bar, which on a Mac with a
+/// notch and many menu bar apps is under the notch, where it is hidden. Until the person moves them (⌘-drag),
+/// our three items start at the left end of the system's own items, in the order limits, memory and disk,
+/// bell. The number only orders the items: a higher one sits further left; the system's items use 93 to ~400.
+/// AppKit forgets the position of an item that is hidden, so the bell asks again each time it is shown.
+func seedStatusItemPosition(_ name: String) {
+    let positions = ["claude-limits.limits": 410.0, "claude-limits.system": 430.0, "claude-limits.attention": 440.0]
+    let key = "NSStatusItem Preferred Position \(name)"
+    guard let position = positions[name], UserDefaults.standard.object(forKey: key) == nil else { return }
+    UserDefaults.standard.set(position, forKey: key)
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
@@ -17,6 +29,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // The default names (Item-0, Item-1…) are the same in every app and macOS remembers a position by name,
+        // so after a relaunch the rings could land under the notch. A name of our own keeps them where they were.
+        seedStatusItemPosition("claude-limits.limits")
+        statusItem.autosaveName = "claude-limits.limits"
         menu.autoenablesItems = false
         menu.delegate = self
         statusItem.menu = menu
